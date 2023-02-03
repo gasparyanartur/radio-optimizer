@@ -18,7 +18,8 @@ Initialize default channel parameters, including several parts.
 import numpy as np
 from dataclasses import dataclass
 from enum import Enum, auto, unique
-from .utils import db2pow, npa
+from .utils import db2pow, tr, to_rotm
+from scipy.spatial.transform import Rotation
 
 @unique
 class SynType(Enum):
@@ -62,6 +63,14 @@ class RadiationType(Enum):
     Cos2 = auto()
 
 
+@unique
+class UpdateArgsType(Enum):
+    All = auto()
+    Signal = auto()
+    Geometry = auto()
+    Channel = auto()
+
+
 @dataclass(init=True)
 class ChannelmmWaveParameters:
     # Model parameters
@@ -93,18 +102,18 @@ class ChannelmmWaveParameters:
     # Global position: 3x1 vector (2D by settings P(3) as zero)
 
     # BS: Base Station
-    PB: np.ndarray = np.array([0, 0, 0]).T
-    OB: np.ndarray = np.array([90, 0, 0]).T
+    PB: np.ndarray = tr(np.array([0, 0, 0]))
+    OB: np.ndarray = tr(np.array([90, 0, 0]))
 
     # UE: User Equipment
-    PU: np.ndarray = np.array([5, 2, 0]).T
-    OU: np.ndarray = np.array([0, 0, 0]).T
-    VU: np.ndarray = np.array([0, 0, 0]).T
+    PU: np.ndarray = tr(np.array([5, 2, 0]))
+    OU: np.ndarray = tr(np.array([0, 0, 0]))
+    VU: np.ndarray = tr(np.array([0, 0, 0]))
 
     # RIS: Reconfigurable Intelligent Surfaces
-    PR: np.ndarray = np.array([])
-    OR: np.ndarray = np.array([0, 0, 0]).T
-    VR: np.ndarray = np.array([0, 0, 0]).T
+    PR: np.ndarray = np.array([[0, 0, 0], [0, 0, 0], [0, 0, 0]])
+    OR: np.ndarray = tr(np.array([0, 0, 0]))
+    VR: np.ndarray = tr(np.array([0, 0, 0]))
 
     # Infrastructure Parameters
     # Number of RFCs at BS and UE
@@ -112,9 +121,9 @@ class ChannelmmWaveParameters:
     MU: int = 1
 
     # Array Dimensions
-    NB_dim: np.ndarray = np.array([4, 4]).T
-    NR_dim: np.ndarray = np.array([10, 10]).T
-    NU_dim: np.ndarray = np.array([4, 4]).T
+    NB_dim: np.ndarray = tr(np.array([4, 4]))
+    NR_dim: np.ndarray = tr(np.array([10, 10]))
+    NU_dim: np.ndarray = tr(np.array([4, 4]))
 
     # Number of elements at BS/RIS/UE
     # Number of antennas for conventional array 
@@ -132,4 +141,40 @@ class ChannelmmWaveParameters:
     noise_figure: float = 10                # Noise figure 3dB
     sigma: float = np.sqrt(np.power(10, noise_figure/10)) * sigma_in      # Output noise level
 
+    G: float = 10
+    dant: float = lambdac/2     # Half wavelength (default distance between antennas/antenna spacing)
+    fdk: np.ndarray = -BW/2 + BW/(2*K) + (BW/K)*tr(np.arange(K))    # Subcarrier frequency
+    fk: np.ndarray = fdk + fc
+    lambdak: np.ndarray = c / fk     # Wavelength for different subcarriers (wide BW systems)
+    beamsplit_coe = np.ones(len(lambdak))
+    LR: int = PR.shape[1]   # Number of RISs
+    L: int = LR + 1
+    RB: np.ndarray = to_rotm(tr(OB))    # Rotation matrix from euler angles
+    tB: np.ndarray = RB * tr(np.array([1, 0, 0]))
+    B0: np.ndarray = dant * get_array_layout(NB_dim)    # Local AE position
+    B: np.ndarray = PB + RB * B0                        # Global AE position
+
+
+    def update_parameters(self, args: UpdateArgsType = UpdateArgsType.All):
+        # Update Signal parameters
+        if args == UpdateArgsType.All or args == UpdateArgsType.Signal:
+            self.lambdac = self.c/self.fc
+            self.dant = self.lambdac/2     
+            self.fdk = -self.BW/2 + self.BW/(2*self.K) + (self.BW/self.K)*np.arange(self.K).T
+            self.fk = self.fdk + self.fc
+            self.lambdak = self.c / self.fk     
+            self.beamsplit_coe = np.ones(len(self.lambdak))
+
+
+        # Update Geometry parameters
+        if args == UpdateArgsType.All or args == UpdateArgsType.Geometry:
+            ...
+
+    def update_geometry(self):
+        self.NB = np.prod(self.NB_DIM)
+        self.NR = np.prod(self.NR_DIM)
+        self.NU = np.prod(self.NU_DIM)
+
+        self.LR = self.PB.shape[1]
+        self.L = self.LR + 1
 
