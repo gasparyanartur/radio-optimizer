@@ -12,3 +12,14 @@ def to_rotm(ang_eul: np.ndarray) -> np.ndarray:
 
 def rank(x: np.ndarray) -> int:
     return len(x.shape)
+
+
+def get_angle_from_dir(tv: np.ndarray, in_degrees=True) -> tuple[float, float]:
+    phi = np.arctan2(tv[1, :], tv[0, :])
+    theta = np.arcsin(tv[2, :])
+
+    if in_degrees:
+        phi = np.rad2deg(phi)
+        theta = np.rad2deg(theta)
+
+    return phi, theta

@@ -18,8 +18,7 @@ Initialize default channel parameters, including several parts.
 import numpy as np
 from dataclasses import dataclass
 from enum import Enum, auto, unique
-from .utils import db2pow, to_rotm
-from scipy.spatial.transform import Rotation
+from .utils import db2pow, to_rotm, get_angle_from_dir
 
 
 @unique
@@ -147,8 +146,13 @@ class ChannelmmWaveParameters:
         temperature: float = 298.15,     # Temperature 25 celsius,
 
         noise_figure: float = 10,                # Noise figure 3dB
-        G: float = 10
+        G: float = 10,
+
+
+        seed=0          # Random seed
     ):
+        self.seed = 0
+        np.random.seed(seed)
 
         # Model parameters
         self.syn_type: SynType = syn_type
@@ -246,12 +250,88 @@ class ChannelmmWaveParameters:
         self.L: int = self.LR + 1
 
         self.RB: np.ndarray = to_rotm(self.OB.T)    # Rotation matrix from euler angles
-        self.tB: np.ndarray = self.RB * np.array([1, 0, 0]).reshape(-1, 1)
+        self.tB: np.ndarray = self.RB @ np.array([1, 0, 0]).reshape(-1, 1)
         self.B0: np.ndarray = self.dant * get_array_layout(self.NB_dim)    # Local AE position
-        print("PB SHAPE", self.PB.shape)
-        print("RB SHAPE", self.RB.shape)
-        print("B0 SHAPE", self.B0.shape)
-        self.B: np.ndarray = self.PB + self.RB * self.B0                        # Global AE position
+        self.B: np.ndarray = self.PB + self.RB @ self.B0     # Global AE position
+
+        self.RU: np.ndarray = to_rotm(self.OU.T)    # Rotation matrix from euler angles
+        self.tU: np.ndarray = self.RU @ np.array([1, 0, 0]).reshape(-1, 1)
+        self.U0: np.ndarray = self.dant * get_array_layout(self.NU_dim)     # Local AE position
+        self.U: np.ndarray = self.PU + self.RU @ self.U0    # Global AE position
+
+        # TODO: Optimize using 3D tensor
+        self.RR: list[np.ndarray] = []      # List of rotation matrixes
+        self.tR: np.ndarray = np.zeros((3, self.LR))
+        self.R0: list[np.ndarray] = []      # List of local AE positions
+        self.R: list[np.ndarray] = []       # List of global AE positions
+
+        # LOS Channel
+
+        self.dBU: float = np.linalg.norm(self.PB - self.PU)
+        self.tauBU: float = self.dBU / self.c
+        self.dL: float = self.dBU + self.beta
+        self.tauL: float = (self.dBU + self.beta) / self.c
+        
+        # global DOD/DOA: global = Rotm*local; local = Rotm^-1*global
+        self.tBU: np.ndarray = (self.PU - self.PB) / self.dBU
+        self.tUB: np.ndarray = -self.tBU
+        self.phiBU: float = 0
+        self.thetaBU: float = 0
+
+        # local DOD/DOA: global = Rotm*local; local = Rotm^-1*global
+        self.tBU_loc: np.ndarray = self.RB.T @ self.tBU     # Unit direction vector (local) from Tx to Rx
+        self.phiBU_loc: float = 0
+        self.thetaBU_loc: float = 0
+        self.tUB_loc: np.ndarray = self.RU.T @ (-self.tBU)  # Unit direction vector (local) from Tx to RX
+        self.phiUB_loc: float = 0
+        self.thetaUB_loc: float = 0
+        self.rhoL: float = 0
+        self.xiL: float = 0
+
+        # RIS Channel
+
+        self.dBR: float = np.linalg.norm(self.PB - self.PR)
+        self.dRB: float = self.dBR
+        self.dRU: float = np.linalg.norm(self.PU - self.PR)
+        self.dUR: float = self.dRU
+        self.dBRU: float = self.dBR + self.dRU
+        self.dR: float = self.dBRU + self.beta      # Delay of the LOS path, in [m]
+        self.tauBRU: float = self.dBRU / self.c
+        self.tauR: float = (self.dBRU + self.beta) / self.c     # Signal delay, propagation time + offset
+        
+        # global DOD/DOA: global = Rotm*local; local = Rotm^-1*global 
+        self.tBR: np.ndarray = (self.PR-self.PB) / self.dBR
+        self.tRB: np.ndarray = -self.tBR
+        self.tUR: np.ndarray = (self.PR-self.PU) / self.dUR
+        self.tRU: np.ndarray = -self.tUR
+
+        self.phiBR: float = 0
+        self.thetaBR: float = 0
+        self.phiUR: float = 0
+        self.thetaUR: float = 0
+
+        # local DOD/DOA: global = Rotm*local; local = rotm^-1*global
+        self.tBR_loc: np.ndarray = self.RB.T @ self.tBR     # Unit direction vector (local) from Tx to Rx
+        self.phiBR_loc: float = 0
+        self.thetaBR_loc: float = 0
+
+        self.tUR_loc: np.ndarray = self.RU.T @ self.tUR     # Unit direction vector (local) from Tx to Rx
+        self.phiUR_loc: float = 0
+        self.thetaUR_loc: float = 0
+
+        self.tRB_loc = np.zeros((3, self.LR))
+        self.tRU_loc = np.zeros((3, self.LR))
+
+        self.phiRB_loc: float = 0
+        self.thetaRB_loc: float = 0
+        self.phiRU_loc: float = 0
+        self.thetaRU_loc: float = 0
+
+        self.rhoR: np.ndarray = np.zeros((1, self.LR))
+        self.xiR: np.ndarray = np.zeros((1, self.LR))
+
+
+        self.update_parameters()
 
     def update_parameters(self, args: UpdateArgsType = UpdateArgsType.All):
         # Update Signal parameters
@@ -269,13 +349,98 @@ class ChannelmmWaveParameters:
 
         # Update Geometry parameters
         if args == UpdateArgsType.All or args == UpdateArgsType.Geometry:
-            ...
+            self.update_geometry()
 
     def update_geometry(self):
-        self.NB = np.prod(self.NB_DIM)
-        self.NR = np.prod(self.NR_DIM)
-        self.NU = np.prod(self.NU_DIM)
+        self.NB = np.prod(self.NB_dim)
+        self.NR = np.prod(self.NR_dim)
+        self.NU = np.prod(self.NU_dim)
 
-        self.LR = self.PB.shape[1]
+        self.LR = self.PR.shape[1]
         self.L = self.LR + 1
+
+        self.RB = to_rotm(self.OB.T)
+        self.tB = self.RB @ np.array([1, 0, 0]).reshape(-1, 1)
+        self.B0 = self.dant * get_array_layout(self.NB_dim)  
+        self.B = self.PB + self.RB @ self.B0
+        
+        self.RU = to_rotm(self.OU.T)    
+        self.tU = self.RU @ np.array([1, 0, 0]).reshape(-1, 1)
+        self.U0 = self.dant * get_array_layout(self.NU_dim)     
+        self.U = self.PU + self.RU @ self.U0    
+
+        if self.LR > 0:
+            # TODO: Optimize using 3D tensor
+            self.RR = [None for _ in range(self.LR)]      # List of rotation matrixes
+            self.tR = np.zeros((3, self.LR))
+            self.R0 = [None for _ in range(self.LR)]      # List of local AE positions
+            self.R = [None for _ in range(self.LR)]       # List of global AE positions 
+
+            for i in range(self.LR):
+                self.RR[i] = to_rotm(self.OR[:, i].T)
+                self.tR[:, i] = self.RR[i][:, 0] 
+                self.R0[i] = self.dant * get_array_layout(self.NR_dim[:, i])
+                self.R[i] = self.PR[:, i][:, np.newaxis] + self.RR[i] @ self.R0[i]
+
+        # LOS Channel
+
+        self.dBU = np.linalg.norm(self.PB - self.PU)
+        self.tauBU = self.dBU / self.c
+        self.dL = self.dBU + self.beta
+        self.tauL = (self.dBU + self.beta) / self.c
+
+        # global DOD/DOA: global = Rotm*local; local = Rotm^-1*global
+        self.tBU = (self.PU - self.PB) / self.dBU
+        self.tUB = -self.tBU
+        self.phiBU, self.thetaBU = get_angle_from_dir(self.tBU)
+
+        # local DOD/DOA: global = Rotm*local; local = Rotm^-1*global
+        self.tBU_loc = self.RB.T @ self.tBU
+        self.phiBU_loc, self.thetaBU_loc = get_angle_from_dir(self.tBU_loc)
+        self.tUB_loc = self.RU.T @ (-self.tBU)
+        self.phiUB_loc, self.thetaUB_loc = get_angle_from_dir(self.tUB_loc)
+        self.rhoL = 0
+        self.xiL = 0
+
+        # RIS Channel
+        if self.LR > 0:
+            self.dBR = np.linalg.norm(self.PB - self.PR, axis=0)
+            self.dRB = self.dBR
+            self.dRU = np.linalg.norm(self.PU - self.PR, axis=0)
+            self.dUR = self.dRU
+            self.dBRU = self.dBR + self.dRU
+            self.dR = self.dBRU + self.beta      # Delay of the LOS path, in [m]
+            self.tauBRU = self.dBRU / self.c
+            self.tauR = (self.dBRU + self.beta) / self.c     # Signal delay, propagation time + offset
+            
+            # global DOD/DOA: global = Rotm*local; local = Rotm^-1*global 
+            self.tBR = (self.PR-self.PB) / self.dBR
+            self.tRB = -self.tBR
+            self.tUR = (self.PR-self.PU) / self.dUR
+            self.tRU = -self.tUR
+
+            self.phiBR, self.thetaBR = get_angle_from_dir(self.tBR)
+            self.phiUR, self.thetaUR = get_angle_from_dir(self.tUR)
+
+            # local DOD/DOA: global = Rotm*local; local = rotm^-1*global
+            self.tBR_loc = self.RB.T @ self.tBR     # Unit direction vector (local) from Tx to Rx
+            self.phiBR_loc, self.thetaBR_loc = get_angle_from_dir(self.tBR_loc)
+
+            self.tUR_loc = self.RU.T @ self.tUR     # Unit direction vector (local) from Tx to Rx
+            self.phiUR_loc, self.thetaUR_loc = get_angle_from_dir(self.tUR_loc)
+
+            self.tRB_loc = np.zeros((3, self.LR))
+            self.tRU_loc = np.zeros((3, self.LR))
+
+            for i in range(self.LR):
+                self.tRB_loc[:, i] = self.RR[i].T @ self.tRB[:, i]  # Unit direction vector (local) from Tx to Rx
+                self.tRU_loc[:, i] = self.RR[i].T @ self.tRU[:, i]  # Unit direction vector (local) from Tx to Rx
+
+            self.phiRB_loc, self.thetaRB_loc = get_angle_from_dir(self.tRB_loc)
+            self.phiRU_loc, self.thetaRU_loc = get_angle_from_dir(self.tRU_loc)
+
+            self.rhoR = np.zeros((1, self.LR))
+            self.xiR = np.zeros((1, self.LR))
+
+
 
