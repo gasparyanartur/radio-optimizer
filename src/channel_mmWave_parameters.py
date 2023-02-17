@@ -71,8 +71,18 @@ class UpdateArgsType(Enum):
     Channel = auto()
 
 
+@unique
+class PathType(Enum):
+    L = auto()
+    R = auto()
+    V = auto()
+    S = auto()
+    B = auto()
+
+
 def get_array_layout(N_dim: np.ndarray) -> np.ndarray:
     r, c = N_dim
+
     X, Y = np.meshgrid(np.arange(c) - (c-1)/2, np.arange(r) - (r-1)/2)
 
     XF = X.ravel(order="F")
@@ -232,6 +242,7 @@ class ChannelmmWaveParameters:
         self.sigma: float = np.sqrt(
             np.power(10, noise_figure/10)
         ) * self.sigma_in      # Output noise level
+        self.sigma0: float = np.sqrt(self.Pn) 
 
         self.G: float = G
 
@@ -330,6 +341,15 @@ class ChannelmmWaveParameters:
         self.rhoR: np.ndarray = np.zeros((1, self.LR))
         self.xiR: np.ndarray = np.zeros((1, self.LR))
 
+        self.N_measures: int = 3 + 5 * self.LR
+        self.N_unknowns: int = 6 + 2 * self.LR
+
+        # ?
+        self.path_type: list[PathType] = []
+        self.path_info: list[PathType] = []
+
+        self.class_index: np.ndarray = np.ones(self.L)
+
 
         self.update_parameters()
 
@@ -350,6 +370,29 @@ class ChannelmmWaveParameters:
         # Update Geometry parameters
         if args == UpdateArgsType.All or args == UpdateArgsType.Geometry:
             self.update_geometry()
+
+            self.N_measures = 3 + 5 * self.LR
+            self.N_unknowns = 6 + 2 * self.LR
+
+            # TODO: Optimize
+            self.path_type = [PathType.R for _ in range(self.L)]
+            self.path_info = [PathType.R for _ in range(self.L)]
+            self.path_type[0] = PathType.L
+            self.path_info[0] = PathType.L
+
+            self.class_index = np.zeros(self.L)
+            for lp in range(self.L):
+                if self.path_type[lp] == PathType.R:
+                    self.class_index[lp] = lp-1
+
+        # Update environment parameters
+        self.operationBW = self.BW
+        self.Pn = self.K_boltzmann*self.temperature*self.operationBW*1000       # Thermal noise linear (in mW)
+        self.Pn_dBm = 10 * np.log10(self.Pn)            # Thermal noise (in dB)
+        self.sigma0 = np.sqrt(self.Pn)
+        self.sigma = np.sqrt(10**(self.noise_figure/10)) * self.sigma0
+
+            
 
     def update_geometry(self):
         self.NB = np.prod(self.NB_dim)
@@ -441,6 +484,6 @@ class ChannelmmWaveParameters:
 
             self.rhoR = np.zeros((1, self.LR))
             self.xiR = np.zeros((1, self.LR))
-
+    
 
 
