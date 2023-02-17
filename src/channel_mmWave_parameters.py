@@ -156,7 +156,7 @@ class ChannelmmWaveParameters:
         temperature: float = 298.15,     # Temperature 25 celsius,
 
         noise_figure: float = 10,                # Noise figure 3dB
-        G: float = 10,
+        G: int = 10,
 
 
         seed=0          # Random seed
@@ -350,6 +350,11 @@ class ChannelmmWaveParameters:
 
         self.class_index: np.ndarray = np.ones(self.L)
 
+        self.WU_mat: np.ndarray = np.zeros(self.NU, self.MU, self.G)
+        self.WB_mat: np.ndarray = np.zeros(self.NB, self.MB, self.G)
+        self.omega: list[np.ndarray] = [None for _ in range(self.LR)]
+
+        self.XU_mat: np.ndarray = np.zeros(self.NU, self.K, self.G)     # Each cell has size N x Ks
 
         self.update_parameters()
 
@@ -486,4 +491,66 @@ class ChannelmmWaveParameters:
             self.xiR = np.zeros((1, self.LR))
     
 
+    def get_beam_matrix(self):
+        """Get the combining matrix and precoding matrix for hybrid MIMO.
+
+            For fully digital array: W is a diagonal matrix with all 1s diagonal elements.
+
+            # Random: Generate directional beams pointing to [phi, theta]
+            # Directional: Generate directional beams pointing to [phi, theta]
+            # Derivative: Generative derivative beams pointing to [phi, theta]
+            # Customized: Do nothing...
+        """
+
+        self.WU_mat = np.zeros(self.NU, self.MU, self.G)
+        self.WB_mat = np.zeros(self.NB, self.MB, self.G)
+
+        # TODO: Optimize
+        if self.array_type == ArrayType.Digital:
+            for g in range(self.G):
+                WU = np.eye(self.NU)
+                WB = np.eye(self.NB)
+                self.WU_mat[:, :, g] = WU
+                self.WB_mat[:, :, g] = WB
+
+        elif self.beam_type == BeamType.Random:
+            for g in range(self.G):
+                WU = np.exp(2j * np.pi * np.random.random(self.NU, self.MU))/np.sqrt(self.NU)
+                WB = np.exp(2j * np.pi * np.random.random(self.NB, self.MB))/np.sqrt(self.NB)
+                self.WU_mat[:, :, g] = WU
+                self.WB_mat[:, :, g] = WB
+
+        if self.ris_profile_type == RisProfileType.Random:
+            for i in range(self.LR):
+                self.omega[i] = np.exp(2j * np.pi * np.random.random(self.NR[i], self.G))
+
+    def get_tx_symbol(self):
+        """ Get the transmitted smybols (after precoder)
+
+            For fully diagonal array: W is a diagonal matrix with all 1s diagonal elements.
+            Random: Generate random phase shifter coefficients.
+            Directional: Generate directional beams pointing to [phi, theta].
+            Derivative: Generate derivative beams pointing to [phi, theta].
+            Customized: Do nothing...
+
+            symbol: s = M x K (# of RFCs x # or subcarriers)
+            symbol cell: LU x G (# of UE x)
+            precoder/combiner: W = N x M x G (N x M x K x G if beamsplit/widband is considered)
+
+            Notes: PA for each antenna, TX power is calculated based Xub/Xuk
+        """
+        
+        self.XU_mat = np.zeros(self.NU, self.K, self.G)     # Each cell has size N x Ks
+
+        # TODO: Optimize
+        if self.beam_type == BeamType.Random:
+            for g in range(self.G):
+                XU0 = np.exp(2j * np.PI * np.random.random(self.MU, self.K))
+                WU = self.WU_mat[:, :, g]
+                XU = WU * XU0
+                self.XU_matrix[:, :, g] = XU / np.linalg.norm(XU, axis=0)
+
+
+    def get_path_parmaeters_PWM(self):
+        self.get_channel
 
