@@ -370,9 +370,13 @@ class ChannelmmWaveParameters:
         # Received symbols at BS
         self.muB_cell: list[np.ndarray] = [None for _ in range(self.L)] 
         self.doppler_cell: list[np.ndarray] = [None for _ in range(self.L)]
-        self.XUg: float = 0
-        self.WU: float = 0
-        self.WB
+        self.XUg: np.ndarray = np.zeros((self.NU, self.K))
+        self.WU: np.ndarray = np.zeros((self.NU, self.MU))
+        self.WB: np.ndarray = np.zeros((self.NB, self.MB))
+
+        self.D_muB_cell: list[np.ndarray] = [None for _ in range(self.L)]
+        self.D_muB_UR_cell: list[np.ndarray] = [None for _ in range(self.LR)]
+        self.muB: np.ndarray = np.zeros((self.MB, self.K, self.G))
 
         self.update_parameters()
 
@@ -664,10 +668,83 @@ class ChannelmmWaveParameters:
 
 
     def get_rx_symbols(self):
-        
+        # TODO: Optimize,
+        # There should be no need to init these symbols, since they get overwritten here anyways
+        # Also, none of the variables in the function call need to be stored in the parameter, they always get overwritten
+
+        # Received symbols at BS.
+        self.muB_cell = [None for _ in range(self.L)]       
+        self.doppler_cell = [None for _ in range(self.L)]
+
+        for lp in range(self.L):
+            curr_type = self.path_info[lp]
+            lc = self.class_index[lp]       # index of the same class
+            muB = np.zeros((self.MB, self.K, self.G))
+            doppler_mat = np.ones((self.K, self.G))     # without considering Doppler: set as ones
+            H = self.H_cell[lp]
+
+            AstRB = self.AstRB_cell[lp]
+            AstRU = self.AstRU_cell[lp]
+
+            for g in range(self.G):
+                # Just one user
+                self.XUg = self.XU_mat[:, :, g]
+                self.WU = self.WU_mat[:, :, g]
+                self.WB = self.WB_mat[:, :, g]
+
+                # RIS coefficient component
+                if curr_type == PathType.R:     # TODO: Fix flat array transpose bug
+                    ris_g = (AstRB[:, 0] * AstRU[:, 0]).T @ self.omega[lc][:, g]
+                else:
+                    ris_g = 1
+
+                # Uplink channel
+                muBg = np.zeros((self.MB, self.K))
+                for k in range(self.K):     # TODO: Vectorize
+                    muBg[:, k] = self.WB.T @ self.H[:, :, k] * self.XUg[:, k] * ris_g
+                muB[:, :, g] = muBg
+
+            self.muB_cell[lp] = muB
+            self.doppler_cell[lp] = doppler_mat
+
+    
 
     def get_D_mu_channel_parameters(self):
-        ...
+        """ Get the FIM of the measurement vector (PWM)
+
+            phiBU, thetaBU, phiUB, thetaUB, tau, v, rho, xi
+        """
+        # TODO: Optimize by removing initializing of these.
+        self.D_muB_cell = [None for _ in range(self.L)]
+        self.D_muB_UR_cell = [None for _ in range(self.LR)]
+
+        pi_2j = 2j * np.pi
+
+        for lp in range(self.L):
+            curr_type = self.path_info[lp]
+            lc = self.class_index[lp]
+            self.muB = self.muB_cell[lp]        # TODO: Investigate if this can be made local
+            rho = self.rho_cell[lp]
+            doppler_mat = self.doppler_cell[lp]
+            H = self.H_cell[lp]
+
+            D_muB = np.zeros((self.MB, 3, self.K, self.G))  # 2 Gain, 2 DOA, 2 DOD, 1 tau, 1 velocity (doppler)
+
+            # LOS channel
+            if curr_type == PathType.L:
+                # Calculate FIM Uplink
+                if self.link_type == LinkType.Uplink:
+                    for g in range(self.G):
+                        self.XUg = self.XU_mat[:, :, g]        # TODO: Investigate if this can be made local
+                        self.WB = self.WB_mat[:, :, g]          # This too
+                        doppler_k = doppler_mat[:, g].T
+
+                        for k in range(self.K):
+                            # BU channel
+                            muBg = self.muB[:, k, g]        # received symbols at BS
+                            D_muB_rhoBU = muBg / rho[k]
+                            D_muB_xiBU = pi_2j / self.lambdac * muBg
+                            D_muB_dL = self.WB.T @ 
 
     def get_jacobian_matrix(self):
         ...
