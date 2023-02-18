@@ -93,6 +93,22 @@ def get_array_layout(N_dim: np.ndarray) -> np.ndarray:
     return layout
 
 
+def get_D_Phi_t(phi_deg, theta_deg):
+    """ Get the derivative of Phi (phi/theta) from direction vector t """
+    phi_rad = np.deg2rad(phi_deg)
+    theta_rad = np.deg2rad(theta_deg)
+
+    cos_phi = np.cos(phi_rad)
+    sin_phi = np.sin(phi_rad)
+    cos_theta = np.cos(theta_rad)
+    sin_theta = np.sin(theta_rad)
+
+    D_phi_t = np.array((-sin_phi*cos_theta, cos_phi*cos_theta, 0)).reshape(-1, 1)
+    D_theta_t = np.array((-cos_phi*sin_theta, -sin_phi*sin_theta, cos_theta)).reshape(-1, 1)
+
+    return D_phi_t, D_theta_t
+
+
 @dataclass(init=True)
 class ChannelmmWaveParameters:
     def __init__(
@@ -377,6 +393,8 @@ class ChannelmmWaveParameters:
         self.D_muB_cell: list[np.ndarray] = [None for _ in range(self.L)]
         self.D_muB_UR_cell: list[np.ndarray] = [None for _ in range(self.LR)]
         self.muB: np.ndarray = np.zeros((self.MB, self.K, self.G))
+
+        self.JM_cell = [None for _ in range(self.L)]
 
         self.update_parameters()
 
@@ -744,7 +762,90 @@ class ChannelmmWaveParameters:
                             muBg = self.muB[:, k, g]        # received symbols at BS
                             D_muB_rhoBU = muBg / rho[k]
                             D_muB_xiBU = pi_2j / self.lambdac * muBg
-                            D_muB_dL = self.WB.T @ 
+                            D_muB_dL = self.WB.T @ H[:, :, k] @ self.XUg[:, k] * (pi_2j * self.fdk[k] / self.c) * doppler_k[k]
+                            D_muBkg = np.hstack((D_muB_dL, D_muB_rhoBU, D_muB_xiBU))
+
+                            D_muB[:, :, k, g] = D_muBkg
+
+            elif curr_type == PathType.R:
+                rho = self.rho_cell[lp]
+                D_muB = np.zeros(self.MB, 5, self.K, self.G)
+                AstRB = self.AstRB_cell[lp]
+                AstRU = self.AstRU_cell[lp]
+                AstR = AstRB * AstRU
+                D_tRU_phiRU_loc, D_tRU_thetaRU_loc = get_D_Phi_t(self.phiRU_loc[:, lc], self.thetaRU_loc[:, lc])
+
+                scale_AstRU = AstRU * (pi_2j / (self.lambdac * self.beamsplit_coe)).reshape(-1, 1)
+                D_AstRU_phiRU = scale_AstRU @ (self.R0[lc].T @ D_tRU_phiRU_loc)
+                D_AstRU_thetaRU = scale_AstRU @ (self.R0[lc].T @ D_tRU_thetaRU_loc)
+
+                # Calculate FIM Uplink
+                if self.link_type == LinkType.Uplink:
+                    for g in range(self.G):
+                        self.XUg = self.XU_mat[:, :, g]
+                        self.WB = self.WB_mat[:, :, g]
+                        doppler_k = doppler_mat[:, g].T
+                        Omega_g = self.omega[lc][:, g].T
+                        ris_g = Omega_g.T @ AstR        # RIS gain of the g-th transmission
+
+                        for k in range(self.K):
+                            # RIS channel
+                            muBg = self.muB[:, k, g]    # Received symbols at BN
+
+                            D_muB_rhoR = muBg / rho[k]
+                            D_muB_xiR = pi_2j / self.lambdac @ muBg
+
+                            factor = self.WB.T @  H[:, :, k] @ self.XUg[:, k]
+                            # TODO: Refactor
+                            D_muB_dR = factor @ (pi_2j * self.fdk[k] / self.c) * doppler_k[k]*ris_g[k]
+                            D_muB_phiRU = factor @ doppler_k[k] @ (Omega_g.T @ (AstRB[:, k] * D_AstRU_phiRU[:, k]))
+                            D_muB_thetaRU = factor @ doppler_k[k] @ (Omega_g.T @ (AstRB[:, k] * D_AstRU_thetaRU[:, k]))
+
+                            D_muBkg = np.hstack((D_muB_phiRU, D_muB_thetaRU, D_muB_dR, D_muB_rhoR, D_muB_xiR))
+
+                            D_muB[:, :, k, g] = D_muBkg
+
+            self.D_muB_cell[lp] = D_muB
 
     def get_jacobian_matrix(self):
-        ...
+        """ Get the Jacobian matrix from path parametser to unknowns """
+        self.JM_cell = [None for _ in range(self.L)]
+        
+        for lp in range(self.L):
+            curr_type = self.path_info[lp]
+            lc = self.class_ind[lp]
+
+            # LOS: size(J) = 6x3
+            if curr_type == PathType.L:
+                D_PU_dL = (self.PU - self.PB) / self.dBU
+                D_PU_rhoL = np.zeros((3, 1))
+                D_PU_xiL = np.zeros((3, 1))
+                JPU_LOS = np.hstack((D_PU_dL, D_PU_rhoL, D_PU_xiL))
+                J = np.zeros((6, 3))
+
+                # row: 3PU, 1C, 2Gains
+                # col: 1T, 2Gain
+                J[:3, :] = JPU_LOS
+                J[(3, 4, 5), (0, 1, 2)] = 1         # Clock offset
+
+            # RIS: size(J) = 6x5
+            elif curr_type == PathType.R:
+                tRU_loc = self.tRU_loc[:, lc]
+                dUR = self.dUR[lc]
+                dRU = dUR
+                PR = self.PR[:, lc]
+                tRU = self.tRU[:, lc]
+                RotR = self.RR[lc]
+
+                D_PU_phiRU_loc = (tRU_loc[0] * RotR[:, 1] - tRU_loc[1]*RotR[:, 0]) / (tRU_loc[0]**2 + tRU_loc[1]**2) / dRU
+                D_PU_thetaRU_loc = (RotR[:, 2] - tRU_loc[2]*tRU) / np.sqrt(1 - tRU_loc[2] ** 2) / dRU
+                D_PU_dR = (self.PU - PR) / dRU
+                D_PU_rhoR = np.zeros((3, 1))
+                D_PU_xiR = np.zeros((3, 1))
+
+                JPU_RIS = np.hstack((D_PU_phiRU_loc, D_PU_thetaRU_loc, D_PU_dR, D_PU_rhoR, D_PU_xiR))
+                J = np.zeros((6, 5))
+                J[:3, :] = JPU_RIS
+                J[(3, 4, 5), (2, 3, 4)] = 1        # Clock offset
+
+            self.JM_cell[lp] = J
