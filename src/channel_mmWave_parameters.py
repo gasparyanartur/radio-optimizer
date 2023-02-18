@@ -161,8 +161,8 @@ class ChannelmmWaveParameters:
 
         seed=0          # Random seed
     ):
-        self.seed = 0
-        np.random.seed(seed)
+        self.seed = seed
+        self.rng = np.random.default_rng(seed=self.seed)
 
         # Model parameters
         self.syn_type: SynType = syn_type
@@ -301,14 +301,14 @@ class ChannelmmWaveParameters:
 
         # RIS Channel
 
-        self.dBR: float = np.linalg.norm(self.PB - self.PR)
-        self.dRB: float = self.dBR
-        self.dRU: float = np.linalg.norm(self.PU - self.PR)
-        self.dUR: float = self.dRU
-        self.dBRU: float = self.dBR + self.dRU
-        self.dR: float = self.dBRU + self.beta      # Delay of the LOS path, in [m]
-        self.tauBRU: float = self.dBRU / self.c
-        self.tauR: float = (self.dBRU + self.beta) / self.c     # Signal delay, propagation time + offset
+        self.dBR: np.ndarray = np.linalg.norm(self.PB - self.PR, axis=0)
+        self.dRB: np.ndarray = self.dBR
+        self.dRU: np.ndarray = np.linalg.norm(self.PU - self.PR, axis=0)
+        self.dUR: np.ndarray = self.dRU
+        self.dBRU: np.ndarray = self.dBR + self.dRU
+        self.dR: np.ndarray = self.dBRU + self.beta      # Delay of the LOS path, in [m]
+        self.tauBRU: np.ndarray = self.dBRU / self.c
+        self.tauR: np.ndarray = (self.dBRU + self.beta) / self.c     # Signal delay, propagation time + offset
         
         # global DOD/DOA: global = Rotm*local; local = Rotm^-1*global 
         self.tBR: np.ndarray = (self.PR-self.PB) / self.dBR
@@ -344,7 +344,6 @@ class ChannelmmWaveParameters:
         self.N_measures: int = 3 + 5 * self.LR
         self.N_unknowns: int = 6 + 2 * self.LR
 
-        # ?
         self.path_type: list[PathType] = []
         self.path_info: list[PathType] = []
 
@@ -355,6 +354,25 @@ class ChannelmmWaveParameters:
         self.omega: list[np.ndarray] = [None for _ in range(self.LR)]
 
         self.XU_mat: np.ndarray = np.zeros(self.NU, self.K, self.G)     # Each cell has size N x Ks
+
+        self.alpha_cell: list[np.ndarray] = [None for _ in range(self.L)]
+        self.rho_cell: list[np.ndarray] = [None for _ in range(self.L)]
+        self.Xi_cell: list[np.ndarray] = [None for _ in range(self.L)]
+        self.v_cell: list[np.ndarray] = [None for _ in range(self.L)]
+        self.H_cell: list[np.ndarray] = [None for _ in range(self.L)]
+
+        # Steering vector from BS to UE, RIS, IP
+        self.AstBX_cell: list[np.ndarray] = [None for _ in range(self.L)]
+        self.AstUX_cell: list[np.ndarray] = [None for _ in range(self.L)]
+        self.AstRB_cell: list[np.ndarray] = [None for _ in range(self.L)]
+        self.AstRU_cell: list[np.ndarray] = [None for _ in range(self.L)]
+
+        # Received symbols at BS
+        self.muB_cell: list[np.ndarray] = [None for _ in range(self.L)] 
+        self.doppler_cell: list[np.ndarray] = [None for _ in range(self.L)]
+        self.XUg: float = 0
+        self.WU: float = 0
+        self.WB
 
         self.update_parameters()
 
@@ -515,14 +533,14 @@ class ChannelmmWaveParameters:
 
         elif self.beam_type == BeamType.Random:
             for g in range(self.G):
-                WU = np.exp(2j * np.pi * np.random.random(self.NU, self.MU))/np.sqrt(self.NU)
-                WB = np.exp(2j * np.pi * np.random.random(self.NB, self.MB))/np.sqrt(self.NB)
+                WU = np.exp(2j * np.pi * self.rng.uniform(size=(self.NU, self.MU)))/np.sqrt(self.NU)
+                WB = np.exp(2j * np.pi * self.rng.uniform(size=(self.NU, self.MU)))/np.sqrt(self.NB)
                 self.WU_mat[:, :, g] = WU
                 self.WB_mat[:, :, g] = WB
 
         if self.ris_profile_type == RisProfileType.Random:
             for i in range(self.LR):
-                self.omega[i] = np.exp(2j * np.pi * np.random.random(self.NR[i], self.G))
+                self.omega[i] = np.exp(2j * np.pi * self.rng.uniform(size=(self.NR[i], self.G)))
 
     def get_tx_symbol(self):
         """ Get the transmitted smybols (after precoder)
@@ -545,12 +563,111 @@ class ChannelmmWaveParameters:
         # TODO: Optimize
         if self.beam_type == BeamType.Random:
             for g in range(self.G):
-                XU0 = np.exp(2j * np.PI * np.random.random(self.MU, self.K))
+                XU0 = np.exp(2j * np.PI * self.rng.uniform(size=(self.MU, self.K)))
                 WU = self.WU_mat[:, :, g]
                 XU = WU * XU0
                 self.XU_matrix[:, :, g] = XU / np.linalg.norm(XU, axis=0)
 
 
-    def get_path_parmaeters_PWM(self):
-        self.get_channel
+    def get_path_parameters_PWM(self):
+        self.get_channel_matrix()
+        self.get_rx_symbols()
+        self.get_D_mu_channel_parameters()
+        self.get_jacobian_matrix()
 
+
+    def get_channel_matrix(self):
+        """ Get channel matrices for all the c.L paths
+
+            order: LOS, RIS, Reflection NLOS, scattering NLOS
+        """
+        # lp: index of current path
+        # lc: index of path in current type (e.g., lc-th RIS path)
+
+        # TODO: Optimize
+        # These probably do not need to be defined here since we just overwrite them anyways.
+        # Define them once in __init__ and just write to each cell.
+        self.alpha_cell = [None for _ in range(self.L)]
+        self.rho_cell = [None for _ in range(self.L)]
+        self.Xi_cell = [None for _ in range(self.L)]
+        self.v_cell = [None for _ in range(self.L)]
+        self.H_cell = [None for _ in range(self.L)]
+
+        # Steering vector from BS to UE, RIS, IP
+        self.AstBX_cell = [None for _ in range(self.L)]
+        self.AstUX_cell = [None for _ in range(self.L)]
+        self.AstRB_cell = [None for _ in range(self.L)]
+        self.AstRU_cell = [None for _ in range(self.L)]
+
+        pi_2j = 2j * np.pi
+
+        for lp in range(self.L):
+            curr_type = self.path_info[lp]
+            lc = self.class_index[lp]       # Index of the same class
+
+            # TODO: Optimize, put these outside of loop, no need to reinit them
+            H = np.zeros((self.NB, self.NU, self.K))      # Channel matrix
+            alpha = np.zeros(self.K)
+            AstBU = np.zeros((self.NB, self.K))
+            AstUB = np.zeros((self.NU, self.K))
+            AstBR = np.zeros((self.NB, self.K))
+            AstRB = np.zeros((self.NR[lc], self.K))
+            AstRU = np.zeros((self.NR[lc], self.K))
+            AstUR = np.zeros((self.NU, self.K))
+
+            # LOS channel
+            if curr_type == PathType.L:
+                # Channel gain (antenna directionality sin(theta))
+                rho = self.beamsplit_coe * self.lambdac / 4 / np.pi / self.dBU      # TODO: Optimize: Extract this parameter
+                xi = -self.dL
+
+                # TODO: Extract -2j*pi, it gets computed very often
+                # TODO: Vectorize
+                Xi = np.exp(-pi_2j * self.fdk * self.tauL)       # Delay part e^(-2pij * fdk(k) * tauL)
+                for k in range(self.K):
+                    factor = pi_2j / (self.lambdac * self.beamsplit_coe[k])
+                    alpha[k] = rho[k] * np.exp(xi * factor)        # Complex channel gain of the LOS path
+                    AstBU[:, k] = np.exp(factor * (self.B0.T @ self.tBU_loc))   # Steering vector of BU
+                    AstUB[:, k] = np.exp(factor * (self.U0.T @ self.tUB_loc))   # Steering vector of UB
+
+                self.AstBX_cell[lp] = AstBU
+                self.AstUX_cell[lp] = AstUB
+
+            # RIS channel
+            elif curr_type == PathType.R:
+                # Element gain (antenna directionality cos(theta))
+                # TODO: Extract constant
+                rho = (self.beamsplit_coe*self.lambdac/4/np.pi)**2/self.dBR[lc]/self.dRU[lc]
+                xi = -self.dR[lc]
+
+                Xi = np.exp(-pi_2j*(self.fdk*self.tauR[lc]))     # Delay part e^(-2pij * dfk(k) * tauR)
+                for k in range(self.K):
+                    factor = pi_2j / (self.lambdac * self.beamsplit_coe[k])
+                    alpha[k] = rho[k] * np.exp(xi * factor)
+                    AstBR[:, k] = np.exp(factor * (self.B0.T @ self.tBR_loc[:, lc]))        # Steering vector of BR
+                    AstRB[:, k] = np.exp(factor * (self.R0[lc].T @ self.tRB_loc[:, lc]))    # Steering vector of RB
+                    AstRU[:, k] = np.exp(factor * (self.R0[lc].T @ self.tRU_loc[:, lc]))    # Steering vector of RU
+                    AstUR[:, k] = np.exp(factor * (self.U0.T @ self.tUR_loc[:, lc]))        # Steering vector or UR
+                    H[:, :, k] = alpha[k] * Xi[k] * AstBR * AstUR.T     # HR without coeffecients
+
+                # Note: This RIS channel does not consider the RIS coeffecient
+                # See complete RIS channel in get_rx_symbols_per_path
+                self.AstBX_cell[lp] = AstBR
+                self.AstRB_cell[lp] = AstRB
+                self.AstRU_cell[lp] = AstRU
+                self.AstUX_cell[lp] = AstUR
+
+            self.alpha_cell[lp] = alpha
+            self.rho_cell[lp] = rho
+            self.Xi_cell[lp] = Xi
+            self.H_cell[lp] = np.sqrt(self.P) * H
+
+
+    def get_rx_symbols(self):
+        
+
+    def get_D_mu_channel_parameters(self):
+        ...
+
+    def get_jacobian_matrix(self):
+        ...
