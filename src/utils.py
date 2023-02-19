@@ -65,3 +65,9 @@ def get_linexline(L1x, L1y, L2x, L2y):
         xi = yi = np.NaN
 
     return xi, yi
+
+
+def cdf_y(y, xgrid):
+    """ Get the CDF of y """
+
+    return 1 - np.sum(y >= xgrid.T, axis=1) / len(y)

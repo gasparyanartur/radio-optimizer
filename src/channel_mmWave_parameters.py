@@ -18,7 +18,7 @@ Initialize default channel parameters, including several parts.
 import numpy as np
 from dataclasses import dataclass
 from enum import Enum, auto, unique
-from .utils import db2pow, to_rotm, get_angle_from_dir
+from .utils import db2pow, to_rotm, get_angle_from_dir, get_linexline
 
 
 @unique
@@ -197,6 +197,10 @@ class ChannelmmWaveParameters:
         noise_figure: float = 10,                # Noise figure 3dB
         G: int = 10,
 
+        Wall: list[np.ndarray] = [
+            np.array([[-3, 2], [-1, 2]]),
+            np.array([[3, 2], [1.5, 4]])
+        ],
 
         seed=0          # Random seed
     ):
@@ -425,6 +429,10 @@ class ChannelmmWaveParameters:
 
         self.JS_all: np.ndarray = np.zeros((self.N_unknowns, self.N_measures))
         self.JS: np.ndarray = np.zeros((self.N_unknowns, self.N_measures))
+
+        self.Wall: list[np.ndarray] = Wall
+        self.Anchor: np.ndarray = np.hstack((self.PB[:2], self.PR[:2, :]))
+
 
         self.update_parameters()
 
@@ -949,6 +957,46 @@ class ChannelmmWaveParameters:
 
         EFIM = get_EFIM_from_FIM(FIM, 4)
         CRLB = EFIM ** -1
+        
+        self.PEB = np.sqrt(np.trace(CRLB[:3, :3]))
+        self.CEB = np.sqrt(np.trace(CRLB[4, 4]))
+
+
+    def get_blockage(self, point):
+        block_vec = np.zeros(self.L)
+        for i in range(self.L):     # Iterate all the paths
+            for j in len(self.Wall):
+                # TODO: Optimize 
+                L1 = self.wall[j].T
+                L2 = np.hstack(self.Anchor[:, i], point).T
+
+                xi, _ = get_linexline(L1[0, :], L1[1, :], L2[0, :], L2[1, :])
+                
+                if xi != np.NaN:
+                    block_vec[i] += 1
+
+        return block_vec > 0 
+
+    def get_crlb_blockage(self, blockage):
+        # TODO: Vectorize
+        row_ind = []
+        col_ind = []
+
+        if blockage[0]:
+            col_ind.append(np.arange(3))
+
+        for i in range(1, len(blockage)):
+            if blockage[i]:
+                col_ind.append(3 + (i-2)*5 + np.arange(5))
+            else:
+                row_ind.append(4 + (i-1)*2 + np.arange(2))
+
+        JS1 = self.JS[row_ind, :]
+        JS1[:, col_ind] = 0
+
+        FIM1 = JS1 @ self.FIM_M @ JS1.T
+        EFIM = get_EFIM_from_FIM(FIM1, 4)
+        CRLB = EFIM**-1
         
         self.PEB = np.sqrt(np.trace(CRLB[:3, :3]))
         self.CEB = np.sqrt(np.trace(CRLB[4, 4]))
