@@ -109,6 +109,29 @@ def get_D_Phi_t(phi_deg, theta_deg):
     return D_phi_t, D_theta_t
 
 
+def get_EFIM_from_FIM(FIM, N_states):
+    if len(N_states) == 1:
+        F1 = FIM[:N_states, :N_states]
+        F2 = FIM[:N_states, N_states+1:]
+        F4 = FIM[(N_states+1):, (N_states+1):]
+        EFIM = F1 - F2 @ (F4**-1) @ F2.T
+    
+    else:
+        F1 = FIM[:(N_states[0]-1), :(N_states[0]-1)]
+        F2 = FIM[:(N_states[0]-1), N_states[0]:]
+        F4 = FIM[N_states[0]:, N_states[0]:]
+        EFIM = F4 - F2.T @ (F1**-1) @ F2
+
+        if N_states[-1] != FIM.shape[0]:
+            N_states = N_states[-1] - N_states[0] + 1
+            F1 = EFIM[:N_states, :N_states]
+            F2 = EFIM[:N_states, (N_states+1):]
+            F4 = EFIM[(N_states+1):, (N_states+1):]
+            EFIM = F1 - F2 @ (F4**-1) @ F2.T
+
+    return EFIM
+
+
 @dataclass(init=True)
 class ChannelmmWaveParameters:
     def __init__(
@@ -394,7 +417,14 @@ class ChannelmmWaveParameters:
         self.D_muB_UR_cell: list[np.ndarray] = [None for _ in range(self.LR)]
         self.muB: np.ndarray = np.zeros((self.MB, self.K, self.G))
 
-        self.JM_cell = [None for _ in range(self.L)]
+        self.JM_cell: list[np.ndarray] = [None for _ in range(self.L)]
+
+        # FIM of the measurement vector
+        self.FIM_M: np.ndarray = np.zeros(self.N_measures)
+        self.FIM: np.ndarray = np.zeros(self.N_unknowns)
+
+        self.JS_all: np.ndarray = np.zeros((self.N_unknowns, self.N_measures))
+        self.JS: np.ndarray = np.zeros((self.N_unknowns, self.N_measures))
 
         self.update_parameters()
 
@@ -849,3 +879,76 @@ class ChannelmmWaveParameters:
                 J[(3, 4, 5), (2, 3, 4)] = 1        # Clock offset
 
             self.JM_cell[lp] = J
+
+
+    def get_FIM_PWM(self):
+        """
+            output:
+                self.FIM_M: FIM of the geometric channel parameters
+                self.FIM: FIM of unknown states
+        """
+
+        FIM_M_cell = [None for _ in range(self.G)]      # FIM for measurement vector
+        FIM_S_cell = [None for _ in range(self.G)]      # FIM for state vector
+
+        # Number of unknowns (including complexx channel gain)
+        self.N_unknowns = 6 + 2 * self.LR
+
+        # Number of measurements (LOS + RIS channels)
+        self.N_measures = 3 + 5 * self.LR
+
+        JS_all = np.zeros((self.N_unknowns, self.N_measures))
+
+        JS_all[:6, :3] = self.JM_cell[0][:6, :]
+        for lp in range(1, self.L):
+            lc = lp - 1
+            col_ind = 3 + 5 * (lc - 1) + np.arange(5)
+            row_ind = 6 + (lc - 1) * 2 + np.arange(2) 
+
+            J_temp = self.JM_cell[lp]
+            JS_all[:4, col_ind] = J_temp[:4, :]     # PU, OU, VU
+            JS_all[row_ind, col_ind] = J_temp[4:6, :]
+        JS = JS_all
+
+
+        # Get FIM
+        # TODO: Optimize, remove this initialization
+        self.FIM_M = np.zeros(self.N_measures)      # FIM of the measurement vector
+        self.FIM = np.zeros(self.N_unknowns)
+
+        for g in range(self.G):
+            FIM_M = np.zeros((self.N_measures, self.N_measures))
+
+            for k in range(self.K):
+                # Combine derivative from all paths
+                # TODO: Optimize, preallocate list
+
+                D_mu_Mat_li = []
+                for lp in range(self.L):
+                    D_muB = self.muB_cell[lp][:, :, k, g]
+                    D_mu_Mat_li.append(D_muB)
+
+                D_mu_Mat = np.hstack(D_mu_Mat_li)
+                I_ns_k = D_mu_Mat.T @ D_mu_Mat
+                FIM_M += 2 / self.sigma**2 * np.real(I_ns_k)
+                
+            FIM_M_cell[g] = FIM_M
+            FIM_S_cell[g] = JS @ FIM_M @ JS.T
+
+            self.FIM_M += FIM_M_cell[g]
+
+        self.FIM = JS @ self.FIM_M @ JS.T
+
+        self.JS_all = JS_all
+        self.JS = JS
+ 
+
+    def get_crlb_from_fim_PWM(self, FIM):
+        """ Get CRLB, position error bound and clock-bias error bound """
+        # 4 UE states to be estimated from: 3D position and 1D clock offset
+
+        EFIM = get_EFIM_from_FIM(FIM, 4)
+        CRLB = EFIM ** -1
+        
+        self.PEB = np.sqrt(np.trace(CRLB[:3, :3]))
+        self.CEB = np.sqrt(np.trace(CRLB[4, 4]))
