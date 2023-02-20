@@ -1,0 +1,23 @@
+position RIS: PR: make sure it's a little bit outside of room area (-5.01. ...)
+
+x_grid, y_grid = room space (-5, 5)
+
+grid_size (keep small for accuracy (final evaluation) (0.5)), during optimization can make big (1)
+grid leads to heatmap (PEB), calculated in main loop
+
+channel matrix contains interesting information
+
+
+input: PB PR (position of PB and PR), later (OB, OR) (orientation)
+    Discretize possible (orientation and position)
+
+the PEB_cell (or PEB_Mat later) is what we optimize
+
+
+Objective functoin:
+    get CDF for error grid
+    Find the x-value (error) where 90% of the error is reached (y)
+
+Optimization:
+    Can set K to lower (e.g. 8 instead of 64), overall pattern will be the same
+    Can paralleise main loop of heatmap calculation
