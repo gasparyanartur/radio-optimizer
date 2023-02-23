@@ -260,13 +260,14 @@ class ChannelmmWaveParameters:
         # Array Dimensions
         self.NB_dim: np.ndarray = NB_dim
         self.NR_dim: np.ndarray = NR_dim
+        self.NR = np.prod(self.NR_dim, 0)
         self.NU_dim: np.ndarray = NU_dim
 
         # Number of elements at BS/RIS/UE
         # Number of antennas for conventional array
-        self.NB: int = np.prod(self.NB_dim, 0)    # Number of BS elements
-        self.NR: int = np.prod(self.NR_dim, 0)    # Number of RIS elements
-        self.NU: int = np.prod(self.NU_dim, 0)    # Number of UE elements
+        self.NB: np.ndarray = np.prod(self.NB_dim)    # Number of BS elements
+        self.NU: np.ndarray = np.prod(self.NU_dim)    # Number of UE elements
+        self.NR: np.ndarray = np.prod(self.NR_dim, 0)    # Number of RIS elements
 
         # Environment Parameters
         # Operation bandwidth for Thermal noise
@@ -287,7 +288,7 @@ class ChannelmmWaveParameters:
         ) * self.sigma_in      # Output noise level
         self.sigma0: float = np.sqrt(self.Pn) 
 
-        self.G: float = G
+        self.G: int = G
 
         # Half wavelength (default distance between antennas/antenna spacing)
         self.dant: float = self.lambdac/2
@@ -390,13 +391,13 @@ class ChannelmmWaveParameters:
         self.path_type: list[PathType] = []
         self.path_info: list[PathType] = []
 
-        self.class_index: np.ndarray = np.ones(self.L)
+        self.class_index: np.ndarray = np.ones(self.L, dtype=int)
 
-        self.WU_mat: np.ndarray = np.zeros(self.NU, self.MU, self.G)
-        self.WB_mat: np.ndarray = np.zeros(self.NB, self.MB, self.G)
+        self.WU_mat: np.ndarray = np.zeros((self.NU, self.MU, self.G))
+        self.WB_mat: np.ndarray = np.zeros((self.NB, self.MB, self.G))
         self.omega: list[np.ndarray] = [None for _ in range(self.LR)]
 
-        self.XU_mat: np.ndarray = np.zeros(self.NU, self.K, self.G)     # Each cell has size N x Ks
+        self.XU_mat: np.ndarray = np.zeros((self.NU, self.K, self.G))     # Each cell has size N x Ks
 
         self.alpha_cell: list[np.ndarray] = [None for _ in range(self.L)]
         self.rho_cell: list[np.ndarray] = [None for _ in range(self.L)]
@@ -444,11 +445,11 @@ class ChannelmmWaveParameters:
             self.fdk = (
                 -self.BW/2 +
                  self.BW / (2*self.K) + 
-                 (self.BW/self.K)*np.arange(self.K).T
+                 (self.BW/self.K)*np.arange(self.K).reshape(-1, 1)
             )
-            self.fk = self.fdk + self.fc
-            self.lambdak = self.c / self.fk
-            self.beamsplit_coe = np.ones(len(self.lambdak))
+            self.fk = (self.fdk + self.fc)
+            self.lambdak = (self.c / self.fk)
+            self.beamsplit_coe = np.ones(self.lambdak.shape)
 
         # Update Geometry parameters
         if args == UpdateArgsType.All or args == UpdateArgsType.Geometry:
@@ -463,7 +464,7 @@ class ChannelmmWaveParameters:
             self.path_type[0] = PathType.L
             self.path_info[0] = PathType.L
 
-            self.class_index = np.zeros(self.L)
+            self.class_index = np.zeros(self.L, dtype=int)
             for lp in range(self.L):
                 if self.path_type[lp] == PathType.R:
                     self.class_index[lp] = lp-1
@@ -478,8 +479,8 @@ class ChannelmmWaveParameters:
             
 
     def update_geometry(self):
+        self.NR = np.prod(self.NR_dim, 0)
         self.NB = np.prod(self.NB_dim)
-        self.NR = np.prod(self.NR_dim)
         self.NU = np.prod(self.NU_dim)
 
         self.LR = self.PR.shape[1]
@@ -580,8 +581,8 @@ class ChannelmmWaveParameters:
             # Customized: Do nothing...
         """
 
-        self.WU_mat = np.zeros(self.NU, self.MU, self.G)
-        self.WB_mat = np.zeros(self.NB, self.MB, self.G)
+        self.WU_mat = np.zeros((self.NU, self.MU, self.G), dtype='complex_')
+        self.WB_mat = np.zeros((self.NB, self.MB, self.G), dtype='complex_')
 
         # TODO: Optimize
         if self.array_type == ArrayType.Digital:
@@ -618,15 +619,15 @@ class ChannelmmWaveParameters:
             Notes: PA for each antenna, TX power is calculated based Xub/Xuk
         """
         
-        self.XU_mat = np.zeros(self.NU, self.K, self.G)     # Each cell has size N x Ks
+        self.XU_mat = np.zeros((self.NU, self.K, self.G), dtype='complex_')     # Each cell has size N x Ks
 
         # TODO: Optimize
         if self.beam_type == BeamType.Random:
             for g in range(self.G):
-                XU0 = np.exp(2j * np.PI * self.rng.uniform(size=(self.MU, self.K)))
+                XU0 = np.exp(2j * np.pi * self.rng.uniform(size=(self.MU, self.K)))
                 WU = self.WU_mat[:, :, g]
                 XU = WU * XU0
-                self.XU_matrix[:, :, g] = XU / np.linalg.norm(XU, axis=0)
+                self.XU_mat[:, :, g] = XU / np.linalg.norm(XU, axis=0)
 
 
     def get_path_parameters_PWM(self):
@@ -667,13 +668,13 @@ class ChannelmmWaveParameters:
 
             # TODO: Optimize, put these outside of loop, no need to reinit them
             H = np.zeros((self.NB, self.NU, self.K))      # Channel matrix
-            alpha = np.zeros(self.K)
-            AstBU = np.zeros((self.NB, self.K))
-            AstUB = np.zeros((self.NU, self.K))
-            AstBR = np.zeros((self.NB, self.K))
-            AstRB = np.zeros((self.NR[lc], self.K))
-            AstRU = np.zeros((self.NR[lc], self.K))
-            AstUR = np.zeros((self.NU, self.K))
+            alpha = np.zeros(self.K, dtype='complex_')
+            AstBU = np.zeros((self.NB, self.K), dtype='complex_')
+            AstUB = np.zeros((self.NU, self.K), dtype='complex_')
+            AstBR = np.zeros((self.NB, self.K), dtype='complex_')
+            AstRB = np.zeros((self.NR[lc], self.K), dtype='complex_')
+            AstRU = np.zeros((self.NR[lc], self.K), dtype='complex_')
+            AstUR = np.zeros((self.NU, self.K), dtype='complex_')
 
             # LOS channel
             if curr_type == PathType.L:
@@ -708,7 +709,7 @@ class ChannelmmWaveParameters:
                     AstRB[:, k] = np.exp(factor * (self.R0[lc].T @ self.tRB_loc[:, lc]))    # Steering vector of RB
                     AstRU[:, k] = np.exp(factor * (self.R0[lc].T @ self.tRU_loc[:, lc]))    # Steering vector of RU
                     AstUR[:, k] = np.exp(factor * (self.U0.T @ self.tUR_loc[:, lc]))        # Steering vector or UR
-                    H[:, :, k] = alpha[k] * Xi[k] * AstBR * AstUR.T     # HR without coeffecients
+                    H[:, :, k] = ((alpha[k] * Xi[k]) * AstBR) @ AstUR.T     # HR without coeffecients
 
                 # Note: This RIS channel does not consider the RIS coeffecient
                 # See complete RIS channel in get_rx_symbols_per_path
@@ -757,7 +758,7 @@ class ChannelmmWaveParameters:
                 # Uplink channel
                 muBg = np.zeros((self.MB, self.K))
                 for k in range(self.K):     # TODO: Vectorize
-                    muBg[:, k] = self.WB.T @ self.H[:, :, k] * self.XUg[:, k] * ris_g
+                    muBg[:, k] = self.WB.T @ H[:, :, k] * self.XUg[:, k] * ris_g
                 muB[:, :, g] = muBg
 
             self.muB_cell[lp] = muB
@@ -807,15 +808,16 @@ class ChannelmmWaveParameters:
 
             elif curr_type == PathType.R:
                 rho = self.rho_cell[lp]
-                D_muB = np.zeros(self.MB, 5, self.K, self.G)
+                D_muB = np.zeros((self.MB, 5, self.K, self.G))
                 AstRB = self.AstRB_cell[lp]
                 AstRU = self.AstRU_cell[lp]
                 AstR = AstRB * AstRU
-                D_tRU_phiRU_loc, D_tRU_thetaRU_loc = get_D_Phi_t(self.phiRU_loc[:, lc], self.thetaRU_loc[:, lc])
+                D_tRU_phiRU_loc, D_tRU_thetaRU_loc = get_D_Phi_t(self.phiRU_loc[lc], self.thetaRU_loc[lc])
 
-                scale_AstRU = AstRU * (pi_2j / (self.lambdac * self.beamsplit_coe)).reshape(-1, 1)
-                D_AstRU_phiRU = scale_AstRU @ (self.R0[lc].T @ D_tRU_phiRU_loc)
-                D_AstRU_thetaRU = scale_AstRU @ (self.R0[lc].T @ D_tRU_thetaRU_loc)
+                scale_AstRU = AstRU * (pi_2j / (self.lambdac * self.beamsplit_coe)).T
+
+                D_AstRU_phiRU = scale_AstRU * (self.R0[lc].T @ D_tRU_phiRU_loc)
+                D_AstRU_thetaRU = scale_AstRU * (self.R0[lc].T @ D_tRU_thetaRU_loc)
 
                 # Calculate FIM Uplink
                 if self.link_type == LinkType.Uplink:
@@ -831,14 +833,21 @@ class ChannelmmWaveParameters:
                             muBg = self.muB[:, k, g]    # Received symbols at BN
 
                             D_muB_rhoR = muBg / rho[k]
-                            D_muB_xiR = pi_2j / self.lambdac @ muBg
+                            D_muB_xiR = pi_2j / self.lambdac * muBg
 
                             factor = self.WB.T @  H[:, :, k] @ self.XUg[:, k]
                             # TODO: Refactor
-                            D_muB_dR = factor @ (pi_2j * self.fdk[k] / self.c) * doppler_k[k]*ris_g[k]
-                            D_muB_phiRU = factor @ doppler_k[k] @ (Omega_g.T @ (AstRB[:, k] * D_AstRU_phiRU[:, k]))
-                            D_muB_thetaRU = factor @ doppler_k[k] @ (Omega_g.T @ (AstRB[:, k] * D_AstRU_thetaRU[:, k]))
+                            D_muB_dR = factor * (pi_2j * self.fdk[k] / self.c) * doppler_k[k]*ris_g[k]
+                            D_muB_phiRU = factor * doppler_k[k] * (Omega_g.T @ (AstRB[:, k] * D_AstRU_phiRU[:, k]))
+                            D_muB_thetaRU = factor * doppler_k[k] * (Omega_g.T @ (AstRB[:, k] * D_AstRU_thetaRU[:, k]))
 
+                            print("LOOP NR", k, g)
+                            print(D_muB_phiRU, D_muB_phiRU.shape)
+                            print(D_muB_thetaRU, D_muB_thetaRU.shape)
+                            print(D_muB_dR, D_muB_dR.shape)
+                            print(D_muB_rhoR, D_muB_rhoR.shape)
+                            print(D_muB_xiR, D_muB_xiR.shape)
+                            print()
                             D_muBkg = np.hstack((D_muB_phiRU, D_muB_thetaRU, D_muB_dR, D_muB_rhoR, D_muB_xiR))
 
                             D_muB[:, :, k, g] = D_muBkg
@@ -851,7 +860,7 @@ class ChannelmmWaveParameters:
         
         for lp in range(self.L):
             curr_type = self.path_info[lp]
-            lc = self.class_ind[lp]
+            lc = self.class_index[lp]
 
             # LOS: size(J) = 6x3
             if curr_type == PathType.L:
