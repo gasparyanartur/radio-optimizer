@@ -16,9 +16,8 @@ Initialize default channel parameters, including several parts.
 
 
 import numpy as np
-from dataclasses import dataclass
 from enum import Enum, auto, unique
-from .utils import db2pow, to_rotm, get_angle_from_dir, get_linexline
+from .utils import db2pow, to_rotm, get_angle_from_dir, get_linexline, rand
 
 
 @unique
@@ -110,29 +109,28 @@ def get_D_Phi_t(phi_deg, theta_deg):
 
 
 def get_EFIM_from_FIM(FIM, N_states):
-    if len(N_states) == 1:
+    if isinstance(N_states, int):
         F1 = FIM[:N_states, :N_states]
-        F2 = FIM[:N_states, N_states+1:]
-        F4 = FIM[(N_states+1):, (N_states+1):]
+        F2 = FIM[:N_states, N_states:]
+        F4 = FIM[N_states:, N_states:]
         EFIM = F1 - F2 @ (F4**-1) @ F2.T
     
     else:
-        F1 = FIM[:(N_states[0]-1), :(N_states[0]-1)]
-        F2 = FIM[:(N_states[0]-1), N_states[0]:]
+        F1 = FIM[:N_states[0], :N_states[0]]
+        F2 = FIM[:N_states[0], N_states[0]:]
         F4 = FIM[N_states[0]:, N_states[0]:]
         EFIM = F4 - F2.T @ (F1**-1) @ F2
 
         if N_states[-1] != FIM.shape[0]:
             N_states = N_states[-1] - N_states[0] + 1
             F1 = EFIM[:N_states, :N_states]
-            F2 = EFIM[:N_states, (N_states+1):]
-            F4 = EFIM[(N_states+1):, (N_states+1):]
+            F2 = EFIM[:N_states, N_states:]
+            F4 = EFIM[N_states:, N_states:]
             EFIM = F1 - F2 @ (F4**-1) @ F2.T
 
     return EFIM
 
 
-@dataclass(init=True)
 class ChannelmmWaveParameters:
     def __init__(
         self,
@@ -202,10 +200,10 @@ class ChannelmmWaveParameters:
             np.array([[3, 2], [1.5, 4]])
         ],
 
-        seed=0          # Random seed
+        seed=1          # Random seed
     ):
         self.seed = seed
-        self.rng = np.random.default_rng(seed=self.seed)
+        np.random.seed(self.seed)
 
         # Model parameters
         self.syn_type: SynType = syn_type
@@ -580,6 +578,7 @@ class ChannelmmWaveParameters:
             # Derivative: Generative derivative beams pointing to [phi, theta]
             # Customized: Do nothing...
         """
+        np.random.seed(1); 
 
         self.WU_mat = np.zeros((self.NU, self.MU, self.G), dtype='complex_')
         self.WB_mat = np.zeros((self.NB, self.MB, self.G), dtype='complex_')
@@ -594,14 +593,16 @@ class ChannelmmWaveParameters:
 
         elif self.beam_type == BeamType.Random:
             for g in range(self.G):
-                WU = np.exp(2j * np.pi * self.rng.uniform(size=(self.NU, self.MU)))/np.sqrt(self.NU)
-                WB = np.exp(2j * np.pi * self.rng.uniform(size=(self.NU, self.MU)))/np.sqrt(self.NB)
+                WU = np.exp(2j * np.pi * rand(self.NU, self.MU))/np.sqrt(self.NU)
                 self.WU_mat[:, :, g] = WU
+
+            for g in range(self.G):         # Do the loop twice to match the order of the Matlab code for Debugging purposes.
+                WB = np.exp(2j * np.pi * rand(self.NB, self.MB))/np.sqrt(self.NB)
                 self.WB_mat[:, :, g] = WB
 
         if self.ris_profile_type == RisProfileType.Random:
             for i in range(self.LR):
-                self.omega[i] = np.exp(2j * np.pi * self.rng.uniform(size=(self.NR[i], self.G)))
+                self.omega[i] = np.exp(2j * np.pi * rand(self.NR[i], self.G))
 
     def get_tx_symbol(self):
         """ Get the transmitted smybols (after precoder)
@@ -624,7 +625,7 @@ class ChannelmmWaveParameters:
         # TODO: Optimize
         if self.beam_type == BeamType.Random:
             for g in range(self.G):
-                XU0 = np.exp(2j * np.pi * self.rng.uniform(size=(self.MU, self.K)))
+                XU0 = np.exp(2j * np.pi * rand(self.MU, self.K))
                 WU = self.WU_mat[:, :, g]
                 XU = WU * XU0
                 self.XU_mat[:, :, g] = XU / np.linalg.norm(XU, axis=0)
@@ -667,7 +668,7 @@ class ChannelmmWaveParameters:
             lc = self.class_index[lp]       # Index of the same class
 
             # TODO: Optimize, put these outside of loop, no need to reinit them
-            H = np.zeros((self.NB, self.NU, self.K))      # Channel matrix
+            H = np.zeros((self.NB, self.NU, self.K), dtype='complex_')      # Channel matrix
             alpha = np.zeros(self.K, dtype='complex_')
             AstBU = np.zeros((self.NB, self.K), dtype='complex_')
             AstUB = np.zeros((self.NU, self.K), dtype='complex_')
@@ -736,7 +737,7 @@ class ChannelmmWaveParameters:
         for lp in range(self.L):
             curr_type = self.path_info[lp]
             lc = self.class_index[lp]       # index of the same class
-            muB = np.zeros((self.MB, self.K, self.G))
+            muB = np.zeros((self.MB, self.K, self.G), dtype='complex_')
             doppler_mat = np.ones((self.K, self.G))     # without considering Doppler: set as ones
             H = self.H_cell[lp]
 
@@ -756,7 +757,7 @@ class ChannelmmWaveParameters:
                     ris_g = 1
 
                 # Uplink channel
-                muBg = np.zeros((self.MB, self.K))
+                muBg = np.zeros((self.MB, self.K), dtype='complex_')
                 for k in range(self.K):     # TODO: Vectorize
                     muBg[:, k] = self.WB.T @ H[:, :, k] * self.XUg[:, k] * ris_g
                 muB[:, :, g] = muBg
@@ -785,7 +786,7 @@ class ChannelmmWaveParameters:
             doppler_mat = self.doppler_cell[lp]
             H = self.H_cell[lp]
 
-            D_muB = np.zeros((self.MB, 3, self.K, self.G))  # 2 Gain, 2 DOA, 2 DOD, 1 tau, 1 velocity (doppler)
+            D_muB = np.zeros((self.MB, 3, self.K, self.G), dtype='complex_')  # 2 Gain, 2 DOA, 2 DOD, 1 tau, 1 velocity (doppler)
 
             # LOS channel
             if curr_type == PathType.L:
@@ -808,7 +809,7 @@ class ChannelmmWaveParameters:
 
             elif curr_type == PathType.R:
                 rho = self.rho_cell[lp]
-                D_muB = np.zeros((self.MB, 5, self.K, self.G))
+                D_muB = np.zeros((self.MB, 5, self.K, self.G), dtype='complex_')
                 AstRB = self.AstRB_cell[lp]
                 AstRU = self.AstRU_cell[lp]
                 AstR = AstRB * AstRU
@@ -923,8 +924,8 @@ class ChannelmmWaveParameters:
 
         # Get FIM
         # TODO: Optimize, remove this initialization
-        self.FIM_M = np.zeros(self.N_measures)      # FIM of the measurement vector
-        self.FIM = np.zeros(self.N_unknowns)
+        self.FIM_M = np.zeros((self.N_measures, self.N_measures))      # FIM of the measurement vector
+        self.FIM = np.zeros((self.N_unknowns, self.N_unknowns))
 
         for g in range(self.G):
             FIM_M = np.zeros((self.N_measures, self.N_measures))
@@ -935,7 +936,7 @@ class ChannelmmWaveParameters:
 
                 D_mu_Mat_li = []
                 for lp in range(self.L):
-                    D_muB = self.muB_cell[lp][:, :, k, g]
+                    D_muB = self.muB_cell[lp][:, k, g]
                     D_mu_Mat_li.append(D_muB)
 
                 D_mu_Mat = np.hstack(D_mu_Mat_li)
@@ -957,11 +958,16 @@ class ChannelmmWaveParameters:
         """ Get CRLB, position error bound and clock-bias error bound """
         # 4 UE states to be estimated from: 3D position and 1D clock offset
 
+
         EFIM = get_EFIM_from_FIM(FIM, 4)
         CRLB = EFIM ** -1
         
+        print("EFIM")
+        print(EFIM)
+        print("CRLB")
+        print(CRLB)
         self.PEB = np.sqrt(np.trace(CRLB[:3, :3]))
-        self.CEB = np.sqrt(np.trace(CRLB[4, 4]))
+        self.CEB = np.sqrt(CRLB[3, 3])
 
 
     def get_blockage(self, point):

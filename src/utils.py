@@ -71,3 +71,12 @@ def cdf_y(y, xgrid):
     """ Get the CDF of y """
 
     return 1 - np.sum(y >= xgrid.T, axis=1) / len(y)
+
+
+def rand(*shape):
+    """ Generates a random array that matches the Matlab random array, assuming that the seed is the same. """
+    
+    if not shape:
+        return np.random.rand()
+
+    return np.random.rand(*shape).T.reshape(*shape)
