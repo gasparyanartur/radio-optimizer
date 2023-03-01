@@ -841,13 +841,6 @@ class ChannelmmWaveParameters:
                             D_muB_phiRU = factor * doppler_k[k] * (Omega_g.T @ (AstRB[:, k] * D_AstRU_phiRU[:, k]))
                             D_muB_thetaRU = factor * doppler_k[k] * (Omega_g.T @ (AstRB[:, k] * D_AstRU_thetaRU[:, k]))
 
-                            print("LOOP NR", k, g)
-                            print(D_muB_phiRU, D_muB_phiRU.shape)
-                            print(D_muB_thetaRU, D_muB_thetaRU.shape)
-                            print(D_muB_dR, D_muB_dR.shape)
-                            print(D_muB_rhoR, D_muB_rhoR.shape)
-                            print(D_muB_xiR, D_muB_xiR.shape)
-                            print()
                             D_muBkg = np.hstack((D_muB_phiRU, D_muB_thetaRU, D_muB_dR, D_muB_rhoR, D_muB_xiR))
 
                             D_muB[:, :, k, g] = D_muBkg
@@ -886,13 +879,13 @@ class ChannelmmWaveParameters:
 
                 D_PU_phiRU_loc = (tRU_loc[0] * RotR[:, 1] - tRU_loc[1]*RotR[:, 0]) / (tRU_loc[0]**2 + tRU_loc[1]**2) / dRU
                 D_PU_thetaRU_loc = (RotR[:, 2] - tRU_loc[2]*tRU) / np.sqrt(1 - tRU_loc[2] ** 2) / dRU
-                D_PU_dR = (self.PU - PR) / dRU
-                D_PU_rhoR = np.zeros((3, 1))
-                D_PU_xiR = np.zeros((3, 1))
+                D_PU_dR = (self.PU.flatten() - PR) / dRU
+                D_PU_rhoR = np.zeros(3)
+                D_PU_xiR = np.zeros(3)
 
-                JPU_RIS = np.hstack((D_PU_phiRU_loc, D_PU_thetaRU_loc, D_PU_dR, D_PU_rhoR, D_PU_xiR))
+                JPU_RIS = np.vstack((D_PU_phiRU_loc, D_PU_thetaRU_loc, D_PU_dR, D_PU_rhoR, D_PU_xiR))
                 J = np.zeros((6, 5))
-                J[:3, :] = JPU_RIS
+                J[:3, :] = JPU_RIS.T
                 J[(3, 4, 5), (2, 3, 4)] = 1        # Clock offset
 
             self.JM_cell[lp] = J
@@ -919,12 +912,12 @@ class ChannelmmWaveParameters:
         JS_all[:6, :3] = self.JM_cell[0][:6, :]
         for lp in range(1, self.L):
             lc = lp - 1
-            col_ind = 3 + 5 * (lc - 1) + np.arange(5)
-            row_ind = 6 + (lc - 1) * 2 + np.arange(2) 
+            col_ind = 3 + 5 * lc + np.arange(5)
+            row_ind = 6 + 2 * lc + np.arange(2) 
 
             J_temp = self.JM_cell[lp]
             JS_all[:4, col_ind] = J_temp[:4, :]     # PU, OU, VU
-            JS_all[row_ind, col_ind] = J_temp[4:6, :]
+            JS_all[np.ix_(row_ind, col_ind)] = J_temp[4:6, :]
         JS = JS_all
 
 
