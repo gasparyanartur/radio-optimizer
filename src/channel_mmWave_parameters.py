@@ -972,13 +972,21 @@ class ChannelmmWaveParameters:
 
     def get_blockage(self, point):
         block_vec = np.zeros(self.L)
+        print("self.L")
+        print(self.L)
         for i in range(self.L):     # Iterate all the paths
-            for j in len(self.Wall):
+            for j in range(len(self.Wall)):
                 # TODO: Optimize 
-                L1 = self.wall[j].T
-                L2 = np.hstack(self.Anchor[:, i], point).T
+                print("point")
+                print(point)
+                L1 = self.Wall[j].T
+                L2 = np.vstack((self.Anchor[:, i], point)).T
+                print("L1")
+                print(L1)
+                print("L2")
+                print(L2)
 
-                xi, _ = get_linexline(L1[0, :], L1[1, :], L2[0, :], L2[1, :])
+                xi, _ = get_linexline(L1[0], L1[1], L2[0], L2[1])
                 
                 if xi != np.NaN:
                     block_vec[i] += 1
@@ -990,6 +998,9 @@ class ChannelmmWaveParameters:
         row_ind = []
         col_ind = []
 
+        print("blockage")
+        print(blockage)
+
         if blockage[0]:
             col_ind.append(np.arange(3))
 
@@ -1000,6 +1011,8 @@ class ChannelmmWaveParameters:
                 row_ind.append(4 + (i-1)*2 + np.arange(2))
 
         JS1 = self.JS[row_ind, :]
+        print("JS1")
+        print(JS1)
         JS1[:, col_ind] = 0
 
         FIM1 = JS1 @ self.FIM_M @ JS1.T
