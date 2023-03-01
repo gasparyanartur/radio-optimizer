@@ -529,6 +529,7 @@ class ChannelmmWaveParameters:
 
         # RIS Channel
         if self.LR > 0:
+            print(self.PB, self.PR)
             self.dBR = np.linalg.norm(self.PB - self.PR, axis=0)
             self.dRB = self.dBR
             self.dRU = np.linalg.norm(self.PU - self.PR, axis=0)
@@ -691,6 +692,7 @@ class ChannelmmWaveParameters:
                     alpha[k] = rho[k] * np.exp(xi * factor)        # Complex channel gain of the LOS path
                     AstBU[:, k] = np.exp(factor * (self.B0.T @ self.tBU_loc))   # Steering vector of BU
                     AstUB[:, k] = np.exp(factor * (self.U0.T @ self.tUB_loc))   # Steering vector of UB
+                    H[:, :, k] = ((alpha[k] * Xi[k]) * AstBU) @ AstUB.T
 
                 self.AstBX_cell[lp] = AstBU
                 self.AstUX_cell[lp] = AstUB
