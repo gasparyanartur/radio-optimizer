@@ -938,11 +938,11 @@ class ChannelmmWaveParameters:
 
                 D_mu_Mat_li = []
                 for lp in range(self.L):
-                    D_muB = self.muB_cell[lp][:, k, g]
+                    D_muB = self.D_muB_cell[lp][:, :, k, g]
                     D_mu_Mat_li.append(D_muB)
 
-                D_mu_Mat = np.hstack(D_mu_Mat_li)
-                I_ns_k = D_mu_Mat.T @ D_mu_Mat
+                D_mu_Mat = np.matrix(np.hstack(D_mu_Mat_li))
+                I_ns_k = D_mu_Mat.H @ D_mu_Mat
                 FIM_M += 2 / self.sigma**2 * np.real(I_ns_k)
                 
             FIM_M_cell[g] = FIM_M
