@@ -79,4 +79,4 @@ def rand(*shape):
     if not shape:
         return np.random.rand()
 
-    return np.random.rand(*shape).T.reshape(*shape)
+    return np.random.rand(*shape).flatten().reshape(*shape, order='F')

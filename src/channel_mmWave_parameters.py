@@ -579,8 +579,6 @@ class ChannelmmWaveParameters:
             # Derivative: Generative derivative beams pointing to [phi, theta]
             # Customized: Do nothing...
         """
-        np.random.seed(1); 
-
         self.WU_mat = np.zeros((self.NU, self.MU, self.G), dtype='complex_')
         self.WB_mat = np.zeros((self.NB, self.MB, self.G), dtype='complex_')
 
@@ -742,7 +740,7 @@ class ChannelmmWaveParameters:
             lc = self.class_index[lp]       # index of the same class
             muB = np.zeros((self.MB, self.K, self.G), dtype='complex_')
             doppler_mat = np.ones((self.K, self.G))     # without considering Doppler: set as ones
-            H = self.H_cell[lp]
+            H = self.H_cell[lp]                 # IS EQUIVALENT
 
             AstRB = self.AstRB_cell[lp]
             AstRU = self.AstRU_cell[lp]
@@ -755,14 +753,14 @@ class ChannelmmWaveParameters:
 
                 # RIS coefficient component
                 if curr_type == PathType.R:     # TODO: Fix flat array transpose bug
-                    ris_g = (AstRB[:, 0] * AstRU[:, 0]).T @ self.omega[lc][:, g]
+                    ris_g = (AstRB[:, 0] * AstRU[:, 0]).T @ self.omega[lc][:, g]        # IS EQUIVALENT
                 else:
                     ris_g = 1
 
                 # Uplink channel
                 muBg = np.zeros((self.MB, self.K), dtype='complex_')
                 for k in range(self.K):     # TODO: Vectorize
-                    muBg[:, k] = self.WB.T @ H[:, :, k] * self.XUg[:, k] * ris_g
+                    muBg[:, k] = self.WB.T @ H[:, :, k] * self.XUg[:, k] * ris_g        # SOMETHING WRONG HERE (MAYBE)
                 muB[:, :, g] = muBg
 
             self.muB_cell[lp] = muB
