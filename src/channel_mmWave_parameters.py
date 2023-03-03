@@ -633,9 +633,10 @@ class ChannelmmWaveParameters:
 
 
     def get_path_parameters_PWM(self):
-        self.get_channel_matrix()
-        self.get_rx_symbols()
-        self.get_D_mu_channel_parameters()
+        self.get_channel_matrix()       # Return H_cell
+        self.get_rx_symbols()           # Return muB_cell, muU_cell
+        # THE SAME AT THIS POINT
+        self.get_D_mu_channel_parameters()      # Return D_muB_cell, D_muU_cell
         self.get_jacobian_matrix()
 
 
@@ -964,10 +965,6 @@ class ChannelmmWaveParameters:
         EFIM = get_EFIM_from_FIM(FIM, 4)
         CRLB = EFIM ** -1
         
-        print("EFIM")
-        print(EFIM)
-        print("CRLB")
-        print(CRLB)
         self.PEB = np.sqrt(np.trace(CRLB[:3, :3]))
         self.CEB = np.sqrt(CRLB[3, 3])
 
