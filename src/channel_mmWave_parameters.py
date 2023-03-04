@@ -807,7 +807,7 @@ class ChannelmmWaveParameters:
                             muBg = self.muB[:, k, g]        # received symbols at BS
                             D_muB_rhoBU = muBg / rho[k]
                             D_muB_xiBU = pi_2j / self.lambdac * muBg
-                            D_muB_dL = self.WB.T @ H[:, :, k] @ self.XUg[:, k] * (pi_2j * self.fdk[k] / self.c) * doppler_k[k]
+                            D_muB_dL = self.WB.T @ H[:, :, k] @ self.XUg[:, k] * (-pi_2j * self.fdk[k] / self.c) * doppler_k[k] 
                             D_muBkg = np.hstack((D_muB_dL, D_muB_rhoBU, D_muB_xiBU))
 
                             D_muB[:, :, k, g] = D_muBkg
@@ -820,7 +820,7 @@ class ChannelmmWaveParameters:
                 AstR = AstRB * AstRU
                 D_tRU_phiRU_loc, D_tRU_thetaRU_loc = get_D_Phi_t(self.phiRU_loc[lc], self.thetaRU_loc[lc])
 
-                scale_AstRU = AstRU * (pi_2j / (self.lambdac * self.beamsplit_coe)).T
+                scale_AstRU = AstRU * np.array(np.matrix(pi_2j / (self.lambdac * self.beamsplit_coe)).H)
 
                 D_AstRU_phiRU = scale_AstRU * (self.R0[lc].T @ D_tRU_phiRU_loc)
                 D_AstRU_thetaRU = scale_AstRU * (self.R0[lc].T @ D_tRU_thetaRU_loc)
@@ -831,7 +831,7 @@ class ChannelmmWaveParameters:
                         self.XUg = self.XU_mat[:, :, g]
                         self.WB = self.WB_mat[:, :, g]
                         doppler_k = doppler_mat[:, g].T
-                        Omega_g = self.omega[lc][:, g].T
+                        Omega_g = self.omega[lc][:, g]
                         ris_g = Omega_g.T @ AstR        # RIS gain of the g-th transmission
 
                         for k in range(self.K):
@@ -843,7 +843,7 @@ class ChannelmmWaveParameters:
 
                             factor = self.WB.T @  H[:, :, k] @ self.XUg[:, k]
                             # TODO: Refactor
-                            D_muB_dR = factor * (pi_2j * self.fdk[k] / self.c) * doppler_k[k]*ris_g[k]
+                            D_muB_dR = factor * (-pi_2j * self.fdk[k] / self.c) * doppler_k[k]*ris_g[k]
                             D_muB_phiRU = factor * doppler_k[k] * (Omega_g.T @ (AstRB[:, k] * D_AstRU_phiRU[:, k]))
                             D_muB_thetaRU = factor * doppler_k[k] * (Omega_g.T @ (AstRB[:, k] * D_AstRU_thetaRU[:, k]))
 
@@ -852,6 +852,7 @@ class ChannelmmWaveParameters:
                             D_muB[:, :, k, g] = D_muBkg
 
             self.D_muB_cell[lp] = D_muB
+        ...
 
     def get_jacobian_matrix(self):
         """ Get the Jacobian matrix from path parametser to unknowns """
