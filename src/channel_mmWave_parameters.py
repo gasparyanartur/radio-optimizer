@@ -529,7 +529,6 @@ class ChannelmmWaveParameters:
 
         # RIS Channel
         if self.LR > 0:
-            print(self.PB, self.PR)
             self.dBR = np.linalg.norm(self.PB - self.PR, axis=0)
             self.dRB = self.dBR
             self.dRU = np.linalg.norm(self.PU - self.PR, axis=0)
@@ -759,8 +758,13 @@ class ChannelmmWaveParameters:
 
                 # Uplink channel
                 muBg = np.zeros((self.MB, self.K), dtype='complex_')
+
+                # H is equvialent 
+                # WB is equivalent
+                # XUg is equivalent
+                # ris_g is different sometimes
                 for k in range(self.K):     # TODO: Vectorize
-                    muBg[:, k] = self.WB.T @ H[:, :, k] * self.XUg[:, k] * ris_g        # SOMETHING WRONG HERE (MAYBE)
+                    muBg[:, k] = self.WB.T @ H[:, :, k] @ self.XUg[:, k] * ris_g        # SOMETHING WRONG HERE (MAYBE)
                 muB[:, :, g] = muBg
 
             self.muB_cell[lp] = muB
@@ -969,19 +973,11 @@ class ChannelmmWaveParameters:
 
     def get_blockage(self, point):
         block_vec = np.zeros(self.L)
-        print("self.L")
-        print(self.L)
         for i in range(self.L):     # Iterate all the paths
             for j in range(len(self.Wall)):
                 # TODO: Optimize 
-                print("point")
-                print(point)
                 L1 = self.Wall[j].T
                 L2 = np.vstack((self.Anchor[:, i], point)).T
-                print("L1")
-                print(L1)
-                print("L2")
-                print(L2)
 
                 xi, _ = get_linexline(L1[0], L1[1], L2[0], L2[1])
                 
@@ -995,8 +991,6 @@ class ChannelmmWaveParameters:
         row_ind = []
         col_ind = []
 
-        print("blockage")
-        print(blockage)
 
         if blockage[0]:
             col_ind.append(np.arange(3))
@@ -1008,8 +1002,6 @@ class ChannelmmWaveParameters:
                 row_ind.append(4 + (i-1)*2 + np.arange(2))
 
         JS1 = self.JS[row_ind, :]
-        print("JS1")
-        print(JS1)
         JS1[:, col_ind] = 0
 
         FIM1 = JS1 @ self.FIM_M @ JS1.T
