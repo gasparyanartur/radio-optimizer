@@ -21,6 +21,7 @@ import multiprocessing as mp
 from enum import Enum, auto, unique
 from .utils import db2pow, to_rotm, get_angle_from_dir, get_linexline, rand, is_invertible
 import copy
+import time
 from typing import Tuple, List
 
 
@@ -175,6 +176,7 @@ def get_D_mu_channel_parameters(
 
     pi_2j = 2j * np.pi
     npi_2j_factor = -pi_2j / c * fdk
+    pi2j_lambdac = pi_2j / lambdac
 
     for lp in range(L):
         curr_type = path_info[lp]
@@ -201,7 +203,7 @@ def get_D_mu_channel_parameters(
                         # received symbols at BS
                         muBg = muB[:, k, g]
                         D_muB_rhoBU = muBg / rho[k]
-                        D_muB_xiBU = pi_2j / lambdac * muBg
+                        D_muB_xiBU = pi2j_lambdac * muBg
                         D_muB_dL = WB.T @ H[:, :, k] @ XUg[:, k] * \
                             npi_2j_factor[k] * doppler_k[k]
 
@@ -241,18 +243,17 @@ def get_D_mu_channel_parameters(
                         muBg = muB[:, k, g]
 
                         D_muB_rhoR = muBg / rho[k]
-                        D_muB_xiR = pi_2j / lambdac * muBg
+                        D_muB_xiR = pi2j_lambdac * muBg
 
                         factor = WB.T @  H[:, :, k] @ XUg[:, k]
-                        # TODO: Refactor
+                        factor_doppler = factor * doppler_k[k]
+                        AstRB_k = AstRB[:, k]
                         D_muB_dR = factor * \
                             npi_2j_factor[k] * doppler_k[k]*ris_g[k]
-                        D_muB_phiRU = factor * \
-                            doppler_k[k] * (Omega_g.T @
-                                            (AstRB[:, k] * D_AstRU_phiRU[:, k]))
-                        D_muB_thetaRU = factor * \
-                            doppler_k[k] * (Omega_g.T @
-                                            (AstRB[:, k] * D_AstRU_thetaRU[:, k]))
+                        D_muB_phiRU = factor_doppler * (Omega_g.T @
+                                            (AstRB_k * D_AstRU_phiRU[:, k]))
+                        D_muB_thetaRU = factor_doppler * (Omega_g.T @
+                                            (AstRB_k * D_AstRU_thetaRU[:, k]))
 
                         D_muB[:, 0, k, g] = D_muB_phiRU
                         D_muB[:, 1, k, g] = D_muB_thetaRU
@@ -937,105 +938,6 @@ class ChannelmmWaveParameters:
             self.muB_cell[lp] = muB
             self.doppler_cell[lp] = doppler_mat
 
-    def get_D_mu_channel_parameters(self):
-        """ Get the FIM of the measurement vector (PWM)
-
-            phiBU, thetaBU, phiUB, thetaUB, tau, v, rho, xi
-        """
-        # TODO: Optimize by removing initializing of these.
-        self.D_muB_cell = [None for _ in range(self.L)]
-        self.D_muB_UR_cell = [None for _ in range(self.LR)]
-
-        pi_2j = 2j * np.pi
-
-        for lp in range(self.L):
-            curr_type = self.path_info[lp]
-            lc = self.class_index[lp]
-            # TODO: Investigate if this can be made local
-            muB = self.muB_cell[lp]
-            rho = self.rho_cell[lp]
-            doppler_mat = self.doppler_cell[lp]
-            H = self.H_cell[lp]
-
-            # 2 Gain, 2 DOA, 2 DOD, 1 tau, 1 velocity (doppler)
-            D_muB = np.zeros((self.MB, 3, self.K, self.G), dtype='complex_')
-
-            # LOS channel
-            if curr_type == PathType.L:
-                # Calculate FIM Uplink
-                if self.link_type == LinkType.Uplink:
-                    for g in range(self.G):
-                        XUg = self.XU_mat[:, :, g]
-                        WB = self.WB_mat[:, :, g]          # This too
-                        doppler_k = doppler_mat[:, g].T
-
-                        for k in range(self.K):
-                            # BU channel
-                            # received symbols at BS
-                            muBg = muB[:, k, g]
-                            D_muB_rhoBU = muBg / rho[k]
-                            D_muB_xiBU = pi_2j / self.lambdac * muBg
-                            D_muB_dL = WB.T @ H[:, :, k] @ XUg[:, k] * \
-                                (-pi_2j * self.fdk[k] / self.c) * doppler_k[k]
-                            D_muBkg = np.hstack(
-                                (D_muB_dL, D_muB_rhoBU, D_muB_xiBU))
-
-                            D_muB[:, :, k, g] = D_muBkg
-
-            elif curr_type == PathType.R:
-                rho = self.rho_cell[lp]
-                D_muB = np.zeros((self.MB, 5, self.K, self.G),
-                                 dtype='complex_')
-                AstRB = self.AstRB_cell[lp]
-                AstRU = self.AstRU_cell[lp]
-                AstR = AstRB * AstRU
-                D_tRU_phiRU_loc, D_tRU_thetaRU_loc = get_D_Phi_t(
-                    self.phiRU_loc[lc], self.thetaRU_loc[lc])
-
-                scale_AstRU = AstRU * \
-                    np.array(
-                        np.matrix(pi_2j / (self.lambdac * self.beamsplit_coe)).H)
-
-                D_AstRU_phiRU = scale_AstRU * (self.R0[lc].T @ D_tRU_phiRU_loc)
-                D_AstRU_thetaRU = scale_AstRU * \
-                    (self.R0[lc].T @ D_tRU_thetaRU_loc)
-
-                # Calculate FIM Uplink
-                if self.link_type == LinkType.Uplink:
-                    for g in range(self.G):
-                        XUg = self.XU_mat[:, :, g]
-                        WB = self.WB_mat[:, :, g]
-                        doppler_k = doppler_mat[:, g].T
-                        Omega_g = self.omega[lc][:, g]
-                        ris_g = Omega_g.T @ AstR        # RIS gain of the g-th transmission
-
-                        for k in range(self.K):
-                            # RIS channel
-                            # Received symbols at BN
-                            muBg = muB[:, k, g]
-
-                            D_muB_rhoR = muBg / rho[k]
-                            D_muB_xiR = pi_2j / self.lambdac * muBg
-
-                            factor = WB.T @  H[:, :, k] @ XUg[:, k]
-                            # TODO: Refactor
-                            D_muB_dR = factor * \
-                                (-pi_2j * self.fdk[k] /
-                                 self.c) * doppler_k[k]*ris_g[k]
-                            D_muB_phiRU = factor * \
-                                doppler_k[k] * (Omega_g.T @
-                                                (AstRB[:, k] * D_AstRU_phiRU[:, k]))
-                            D_muB_thetaRU = factor * \
-                                doppler_k[k] * (Omega_g.T @
-                                                (AstRB[:, k] * D_AstRU_thetaRU[:, k]))
-
-                            D_muBkg = np.hstack(
-                                (D_muB_phiRU, D_muB_thetaRU, D_muB_dR, D_muB_rhoR, D_muB_xiR))
-
-                            D_muB[:, :, k, g] = D_muBkg
-
-            self.D_muB_cell[lp] = D_muB
-        ...
 
     def get_jacobian_matrix(self):
         """ Get the Jacobian matrix from path parametser to unknowns """
@@ -1202,7 +1104,7 @@ class ChannelmmWaveParameters:
         CRLB = np.linalg.inv(EFIM)
         self.PEB, self.CEB = get_PEB_and_CEB(CRLB)
 
-    def get_PEB_cell(self, xgrid, ygrid, parallel=True):
+    def get_PEB_cell(self, xgrid, ygrid, parallel=True, verbosity=1, print_runtimes=True):
         if parallel:
             cs = []
             PUs = []
@@ -1215,20 +1117,41 @@ class ChannelmmWaveParameters:
                     cs.append(c)
                     PUs.append(PU)
 
+            t_start = time.time()
             with mp.Pool() as pool:
                 PEBs = pool.starmap(get_PEB_from_PU, zip(cs, PUs))
+            t_end = time.time()
 
             PEB_cells = np.array(PEBs, dtype='complex_').reshape(
                 xgrid.size, ygrid.size)
 
+            if print_runtimes:
+                print(f"Total Runtime:\t{t_end-t_start:.3f} [s]")
+
+
         else:
+            runtimes = np.zeros((xgrid.size, ygrid.size))
             PEB_cells = np.zeros((xgrid.size, ygrid.size), dtype='complex_')
             for xi in range(xgrid.size):
+                if verbosity >= 1:
+                    print(f"xi: {xi}/{xgrid.size}")
+
                 for yi in range(ygrid.size):
+                    if verbosity >= 2:
+                        print(f"yi: {yi}/{ygrid.size}")
+
                     c = self.copy()
                     PU = np.array([xgrid[xi], ygrid[yi], 1]).reshape(-1, 1)
 
+                    t_start = time.time()
                     PEB_cells[xi, yi] = get_PEB_from_PU(c, PU)
+                    t_end = time.time()
+                    runtimes[xi, yi] = t_end - t_start
+
+            if print_runtimes:
+                print(f"Total Runtime:\t{runtimes.sum():.3f} [s]")
+                print(f"Runtime per X:\t{runtimes.sum(axis=0).mean():.3f} ± {runtimes.sum(axis=0).std():.3f} [s]")
+                print(f"Runtime per Y:\t{runtimes.mean():.3f} ± {runtimes.std():.3f} [s]")   
 
         return PEB_cells
 
