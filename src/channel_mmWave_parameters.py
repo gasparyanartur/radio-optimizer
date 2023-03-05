@@ -143,6 +143,19 @@ def get_PEB_and_CEB(CRLB):
     return PEB, CEB
 
 
+def get_PEB_from_PU(c, PU):
+    c.PU = PU
+    c.update_parameters()
+    c.get_path_parameters_PWM()
+    c.get_FIM_PWM()
+    c.get_crlb_from_fim_PWM(c.FIM)
+
+    blockage = c.get_blockage(c.PU[:2].T)
+    c.get_crlb_blockage(blockage)
+
+    return c.PEB
+
+
 class ChannelmmWaveParameters:
     def __init__(
         self,
@@ -1088,6 +1101,30 @@ class ChannelmmWaveParameters:
 
         CRLB = np.linalg.inv(EFIM)
         self.PEB, self.CEB = get_PEB_and_CEB(CRLB)
+
+
+    def get_PEB_cell(self, xgrid, ygrid):
+        import multiprocessing as mp
+        PEB_cell = np.zeros((xgrid.size, ygrid.size), dtype='complex_')
+        c0 = self.copy()
+
+        cs = []
+        PUs = []
+
+        for xi in range(xgrid.size):
+            for yi in range(ygrid.size):
+                c = c0.copy()
+                PU = np.array([xgrid[xi], ygrid[yi], 1]).reshape(-1, 1)
+
+                cs.append(c)
+                PUs.append(PU)
+
+        with mp.Pool() as pool:
+            PEBs = pool.starmap(get_PEB_from_PU, zip(cs, PUs))
+
+        PEB_cells = np.array(PEBs, dtype='complex_').reshape(xgrid.size, ygrid.size)
+        return PEB_cells
+
 
     def plot_scene(self):
         self.plot_walls()
