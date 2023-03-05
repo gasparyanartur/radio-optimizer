@@ -1,4 +1,5 @@
 import numpy as np
+import matplotlib.pyplot as plt
 from scipy.spatial.transform import Rotation
 
 
@@ -88,3 +89,12 @@ def rand(*shape):
 
 def is_invertible(a):
     return a.shape[0] == a.shape[1] and np.linalg.matrix_rank(a) == a.shape[0]
+
+
+def setup_fig():
+    plt.figure(figsize=(9, 6))
+    plt.xlim(-5.25, 5.25)
+    plt.ylim(-0.25, 5.25)
+    plt.xticks([-5, 0, 5])
+    plt.xlabel('x-axis [m]')
+    plt.ylabel('y-axis [m]')
