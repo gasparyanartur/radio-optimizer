@@ -21,6 +21,7 @@ import multiprocessing as mp
 from enum import Enum, auto, unique
 from .utils import db2pow, to_rotm, get_angle_from_dir, get_linexline, rand, is_invertible
 import copy
+from typing import Tuple, List
 
 
 @unique
@@ -328,7 +329,7 @@ class ChannelmmWaveParameters:
         noise_figure: float = 10,                # Noise figure 3dB
         G: int = 10,
 
-        Wall: list[np.ndarray] = [
+        Wall: List[np.ndarray] = [
             np.array([[-3, 2], [-1, 2]]),
             np.array([[3, 2], [1.5, 4]])
         ],
@@ -451,10 +452,10 @@ class ChannelmmWaveParameters:
         self.U: np.ndarray = self.PU + self.RU @ self.U0    # Global AE position
 
         # TODO: Optimize using 3D tensor
-        self.RR: list[np.ndarray] = []      # List of rotation matrixes
+        self.RR: List[np.ndarray] = []      # List of rotation matrixes
         self.tR: np.ndarray = np.zeros((3, self.LR))
-        self.R0: list[np.ndarray] = []      # List of local AE positions
-        self.R: list[np.ndarray] = []       # List of global AE positions
+        self.R0: List[np.ndarray] = []      # List of local AE positions
+        self.R: List[np.ndarray] = []       # List of global AE positions
 
         # LOS Channel
 
@@ -529,39 +530,39 @@ class ChannelmmWaveParameters:
         self.N_measures: int = 3 + 5 * self.LR
         self.N_unknowns: int = 6 + 2 * self.LR
 
-        self.path_type: list[PathType] = []
-        self.path_info: list[PathType] = []
+        self.path_type: List[PathType] = []
+        self.path_info: List[PathType] = []
 
         self.class_index: np.ndarray = np.ones(self.L, dtype=int)
 
         self.WU_mat: np.ndarray = np.zeros((self.NU, self.MU, self.G))
         self.WB_mat: np.ndarray = np.zeros((self.NB, self.MB, self.G))
-        self.omega: list[np.ndarray] = [None for _ in range(self.LR)]
+        self.omega: List[np.ndarray] = [None for _ in range(self.LR)]
 
         self.XU_mat: np.ndarray = np.zeros(
             (self.NU, self.K, self.G))     # Each cell has size N x Ks
 
-        self.alpha_cell: list[np.ndarray] = [None for _ in range(self.L)]
-        self.rho_cell: list[np.ndarray] = [None for _ in range(self.L)]
-        self.Xi_cell: list[np.ndarray] = [None for _ in range(self.L)]
-        self.v_cell: list[np.ndarray] = [None for _ in range(self.L)]
-        self.H_cell: list[np.ndarray] = [None for _ in range(self.L)]
+        self.alpha_cell: List[np.ndarray] = [None for _ in range(self.L)]
+        self.rho_cell: List[np.ndarray] = [None for _ in range(self.L)]
+        self.Xi_cell: List[np.ndarray] = [None for _ in range(self.L)]
+        self.v_cell: List[np.ndarray] = [None for _ in range(self.L)]
+        self.H_cell: List[np.ndarray] = [None for _ in range(self.L)]
 
         # Steering vector from BS to UE, RIS, IP
-        self.AstBX_cell: list[np.ndarray] = [None for _ in range(self.L)]
-        self.AstUX_cell: list[np.ndarray] = [None for _ in range(self.L)]
-        self.AstRB_cell: list[np.ndarray] = [None for _ in range(self.L)]
-        self.AstRU_cell: list[np.ndarray] = [None for _ in range(self.L)]
+        self.AstBX_cell: List[np.ndarray] = [None for _ in range(self.L)]
+        self.AstUX_cell: List[np.ndarray] = [None for _ in range(self.L)]
+        self.AstRB_cell: List[np.ndarray] = [None for _ in range(self.L)]
+        self.AstRU_cell: List[np.ndarray] = [None for _ in range(self.L)]
 
         # Received symbols at BS
-        self.muB_cell: list[np.ndarray] = [None for _ in range(self.L)]
-        self.doppler_cell: list[np.ndarray] = [None for _ in range(self.L)]
+        self.muB_cell: List[np.ndarray] = [None for _ in range(self.L)]
+        self.doppler_cell: List[np.ndarray] = [None for _ in range(self.L)]
 
-        self.D_muB_cell: list[np.ndarray] = [None for _ in range(self.L)]
-        self.D_muB_UR_cell: list[np.ndarray] = [None for _ in range(self.LR)]
+        self.D_muB_cell: List[np.ndarray] = [None for _ in range(self.L)]
+        self.D_muB_UR_cell: List[np.ndarray] = [None for _ in range(self.LR)]
         self.muB: np.ndarray = np.zeros((self.MB, self.K, self.G))
 
-        self.JM_cell: list[np.ndarray] = [None for _ in range(self.L)]
+        self.JM_cell: List[np.ndarray] = [None for _ in range(self.L)]
 
         # FIM of the measurement vector
         self.FIM_M: np.ndarray = np.zeros(self.N_measures)
@@ -570,7 +571,7 @@ class ChannelmmWaveParameters:
         self.JS_all: np.ndarray = np.zeros((self.N_unknowns, self.N_measures))
         self.JS: np.ndarray = np.zeros((self.N_unknowns, self.N_measures))
 
-        self.Wall: list[np.ndarray] = Wall
+        self.Wall: List[np.ndarray] = Wall
         self.Anchor: np.ndarray = np.hstack((self.PB[:2], self.PR[:2, :]))
 
         self.update_parameters()
