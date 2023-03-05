@@ -113,20 +113,20 @@ def get_EFIM_from_FIM(FIM, N_states):
         F1 = FIM[:N_states, :N_states]
         F2 = FIM[:N_states, N_states:]
         F4 = FIM[N_states:, N_states:]
-        EFIM = F1 - F2 @ (F4**-1) @ F2.T
+        EFIM = F1 - F2 @ np.linalg.inv(F4) @ F2.T
     
     else:
         F1 = FIM[:N_states[0], :N_states[0]]
         F2 = FIM[:N_states[0], N_states[0]:]
         F4 = FIM[N_states[0]:, N_states[0]:]
-        EFIM = F4 - F2.T @ (F1**-1) @ F2
+        EFIM = F4 - F2.T @ np.linalg.inv(F1) @ F2
 
         if N_states[-1] != FIM.shape[0]:
             N_states = N_states[-1] - N_states[0] + 1
             F1 = EFIM[:N_states, :N_states]
             F2 = EFIM[:N_states, N_states:]
             F4 = EFIM[N_states:, N_states:]
-            EFIM = F1 - F2 @ (F4**-1) @ F2.T
+            EFIM = F1 - F2 @ np.linalg.inv(F4) @ F2.T
 
     return EFIM
 
@@ -966,7 +966,7 @@ class ChannelmmWaveParameters:
 
 
         EFIM = get_EFIM_from_FIM(FIM, 4)
-        CRLB = EFIM ** -1
+        CRLB = np.linalg.inv(EFIM)
         
         self.PEB = np.sqrt(np.trace(CRLB[:3, :3]))
         self.CEB = np.sqrt(CRLB[3, 3])
