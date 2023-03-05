@@ -449,9 +449,6 @@ class ChannelmmWaveParameters:
         # Received symbols at BS
         self.muB_cell: list[np.ndarray] = [None for _ in range(self.L)]
         self.doppler_cell: list[np.ndarray] = [None for _ in range(self.L)]
-        self.XUg: np.ndarray = np.zeros((self.NU, self.K))
-        self.WU: np.ndarray = np.zeros((self.NU, self.MU))
-        self.WB: np.ndarray = np.zeros((self.NB, self.MB))
 
         self.D_muB_cell: list[np.ndarray] = [None for _ in range(self.L)]
         self.D_muB_UR_cell: list[np.ndarray] = [None for _ in range(self.LR)]
@@ -493,8 +490,8 @@ class ChannelmmWaveParameters:
             self.N_unknowns = 6 + 2 * self.LR
 
             # TODO: Optimize
-            self.path_type = [PathType.R for _ in range(self.L)]
-            self.path_info = [PathType.R for _ in range(self.L)]
+            self.path_type = np.array([PathType.R for _ in range(self.L)])
+            self.path_info = np.array([PathType.R for _ in range(self.L)])
             self.path_type[0] = PathType.L
             self.path_info[0] = PathType.L
 
@@ -793,8 +790,8 @@ class ChannelmmWaveParameters:
         # Also, none of the variables in the function call need to be stored in the parameter, they always get overwritten
 
         # Received symbols at BS.
-        self.muB_cell = [None for _ in range(self.L)]
-        self.doppler_cell = [None for _ in range(self.L)]
+        #self.muB_cell = [None for _ in range(self.L)]
+        #self.doppler_cell = [None for _ in range(self.L)]
 
         for lp in range(self.L):
             curr_type = self.path_info[lp]
@@ -802,36 +799,27 @@ class ChannelmmWaveParameters:
             muB = np.zeros((self.MB, self.K, self.G), dtype='complex_')
             # without considering Doppler: set as ones
             doppler_mat = np.ones((self.K, self.G))
-            H = self.H_cell[lp]                 # IS EQUIVALENT
+            H = self.H_cell[lp]                
 
             AstRB = self.AstRB_cell[lp]
             AstRU = self.AstRU_cell[lp]
 
+            if curr_type == PathType.R:
+                ris_prefix = (AstRB[:, 0] * AstRU[:, 0]).T
+
             for g in range(self.G):
                 # Just one user
-                self.XUg = self.XU_mat[:, :, g]
-                self.WU = self.WU_mat[:, :, g]
-                self.WB = self.WB_mat[:, :, g]
+                XUg = self.XU_mat[:, :, g]
+                WB = self.WB_mat[:, :, g]
 
                 # RIS coefficient component
-                if curr_type == PathType.R:     # TODO: Fix flat array transpose bug
-                    # IS EQUIVALENT
-                    ris_g = (AstRB[:, 0] * AstRU[:, 0]
-                             ).T @ self.omega[lc][:, g]
-                else:
-                    ris_g = 1
+                ris_g = (ris_prefix @ self.omega[lc][:, g] 
+                         if (curr_type == PathType.R) 
+                         else 1)
 
                 # Uplink channel
-                muBg = np.zeros((self.MB, self.K), dtype='complex_')
-
-                # H is equvialent
-                # WB is equivalent
-                # XUg is equivalent
-                # ris_g is different sometimes
-                for k in range(self.K):     # TODO: Vectorize
-                    muBg[:, k] = self.WB.T @ H[:, :, k] @ self.XUg[:, k] * \
-                        ris_g        # SOMETHING WRONG HERE (MAYBE)
-                muB[:, :, g] = muBg
+                for k in range(self.K):
+                    muB[:, k, g] = WB.T @ H[:, :, k] @ XUg[:, k] * ris_g
 
             self.muB_cell[lp] = muB
             self.doppler_cell[lp] = doppler_mat
@@ -864,9 +852,8 @@ class ChannelmmWaveParameters:
                 # Calculate FIM Uplink
                 if self.link_type == LinkType.Uplink:
                     for g in range(self.G):
-                        # TODO: Investigate if this can be made local
-                        self.XUg = self.XU_mat[:, :, g]
-                        self.WB = self.WB_mat[:, :, g]          # This too
+                        XUg = self.XU_mat[:, :, g]
+                        WB = self.WB_mat[:, :, g]          # This too
                         doppler_k = doppler_mat[:, g].T
 
                         for k in range(self.K):
@@ -875,7 +862,7 @@ class ChannelmmWaveParameters:
                             muBg = self.muB[:, k, g]
                             D_muB_rhoBU = muBg / rho[k]
                             D_muB_xiBU = pi_2j / self.lambdac * muBg
-                            D_muB_dL = self.WB.T @ H[:, :, k] @ self.XUg[:, k] * \
+                            D_muB_dL = WB.T @ H[:, :, k] @ XUg[:, k] * \
                                 (-pi_2j * self.fdk[k] / self.c) * doppler_k[k]
                             D_muBkg = np.hstack(
                                 (D_muB_dL, D_muB_rhoBU, D_muB_xiBU))
@@ -903,8 +890,8 @@ class ChannelmmWaveParameters:
                 # Calculate FIM Uplink
                 if self.link_type == LinkType.Uplink:
                     for g in range(self.G):
-                        self.XUg = self.XU_mat[:, :, g]
-                        self.WB = self.WB_mat[:, :, g]
+                        XUg = self.XU_mat[:, :, g]
+                        WB = self.WB_mat[:, :, g]
                         doppler_k = doppler_mat[:, g].T
                         Omega_g = self.omega[lc][:, g]
                         ris_g = Omega_g.T @ AstR        # RIS gain of the g-th transmission
@@ -917,7 +904,7 @@ class ChannelmmWaveParameters:
                             D_muB_rhoR = muBg / rho[k]
                             D_muB_xiR = pi_2j / self.lambdac * muBg
 
-                            factor = self.WB.T @  H[:, :, k] @ self.XUg[:, k]
+                            factor = WB.T @  H[:, :, k] @ XUg[:, k]
                             # TODO: Refactor
                             D_muB_dR = factor * \
                                 (-pi_2j * self.fdk[k] /
@@ -1102,7 +1089,6 @@ class ChannelmmWaveParameters:
         CRLB = np.linalg.inv(EFIM)
         self.PEB, self.CEB = get_PEB_and_CEB(CRLB)
 
-
     def get_PEB_cell(self, xgrid, ygrid):
         import multiprocessing as mp
         PEB_cell = np.zeros((xgrid.size, ygrid.size), dtype='complex_')
@@ -1122,9 +1108,9 @@ class ChannelmmWaveParameters:
         with mp.Pool() as pool:
             PEBs = pool.starmap(get_PEB_from_PU, zip(cs, PUs))
 
-        PEB_cells = np.array(PEBs, dtype='complex_').reshape(xgrid.size, ygrid.size)
+        PEB_cells = np.array(PEBs, dtype='complex_').reshape(
+            xgrid.size, ygrid.size)
         return PEB_cells
-
 
     def plot_scene(self):
         self.plot_walls()
