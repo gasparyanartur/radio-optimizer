@@ -16,6 +16,7 @@ Initialize default channel parameters, including several parts.
 
 
 import numpy as np
+import matplotlib.pyplot as plt
 from enum import Enum, auto, unique
 from .utils import db2pow, to_rotm, get_angle_from_dir, get_linexline, rand
 
@@ -129,6 +130,13 @@ def get_EFIM_from_FIM(FIM, N_states):
             EFIM = F1 - F2 @ np.linalg.inv(F4) @ F2.T
 
     return EFIM
+
+
+def get_PEB_and_CEB(CRLB):
+    PEB = np.sqrt(np.trace(CRLB[:3, :3]))
+    CEB = np.sqrt(CRLB[3, 3])
+
+    return PEB, CEB
 
 
 class ChannelmmWaveParameters:
@@ -431,7 +439,6 @@ class ChannelmmWaveParameters:
 
         self.Wall: list[np.ndarray] = Wall
         self.Anchor: np.ndarray = np.hstack((self.PB[:2], self.PR[:2, :]))
-
 
         self.update_parameters()
 
@@ -968,8 +975,7 @@ class ChannelmmWaveParameters:
         EFIM = get_EFIM_from_FIM(FIM, 4)
         CRLB = np.linalg.inv(EFIM)
         
-        self.PEB = np.sqrt(np.trace(CRLB[:3, :3]))
-        self.CEB = np.sqrt(CRLB[3, 3])
+        self.PEB, self.CEB = get_PEB_and_CEB(CRLB)
 
 
     def get_blockage(self, point):
@@ -982,32 +988,46 @@ class ChannelmmWaveParameters:
 
                 xi, _ = get_linexline(L1[0], L1[1], L2[0], L2[1])
                 
-                if xi != np.NaN:
+                if not np.isnan(xi):
                     block_vec[i] += 1
 
         return block_vec > 0 
 
     def get_crlb_blockage(self, blockage):
         # TODO: Vectorize
-        row_ind = []
+        row_ind = [np.arange(4)]
         col_ind = []
 
 
         if blockage[0]:
             col_ind.append(np.arange(3))
+        else:
+            row_ind.append(4 + i*2 + np.arange(2)) 
 
         for i in range(1, len(blockage)):
             if blockage[i]:
-                col_ind.append(3 + (i-2)*5 + np.arange(5))
+                col_ind.append(3 + (i-1)*5 + np.arange(5))
             else:
-                row_ind.append(4 + (i-1)*2 + np.arange(2))
+                row_ind.append(4 + i*2 + np.arange(2))
+
+        row_ind = np.hstack(row_ind)
+        col_ind = np.hstack(col_ind)
 
         JS1 = self.JS[row_ind, :]
         JS1[:, col_ind] = 0
 
         FIM1 = JS1 @ self.FIM_M @ JS1.T
         EFIM = get_EFIM_from_FIM(FIM1, 4)
-        CRLB = EFIM**-1
+        CRLB = np.linalg.inv(EFIM)
         
-        self.PEB = np.sqrt(np.trace(CRLB[:3, :3]))
-        self.CEB = np.sqrt(np.trace(CRLB[4, 4]))
+        self.PEB, self.CEB = get_PEB_and_CEB(CRLB)
+
+
+    def plot_scene(self, xlim=(-6, 6), ylim=(-1, 6)):
+        plt.figure()
+        plt.scatter(self.PB[0], self.PB[1], marker='x')
+        plt.scatter(self.PR[0], self.PR[1], marker='o')
+        plt.plot(self.Wall[0][:, 0], self.Wall[0][:, 1])
+        plt.plot(self.Wall[1][:, 0], self.Wall[1][:, 1])
+        plt.xlim(*xlim)
+        plt.ylim(*ylim)
