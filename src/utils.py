@@ -53,8 +53,12 @@ def get_linexline(L1x, L1y, L2x, L2y):
     x34, y34 = x4 - x3, y4 - y3
 
     # Line segment intersect parameters
-    u = (x31*y21 - y31*x21) / (x21*y43 - y21*x43)
-    t = (x31*y43 - y31*x43) / (x21*y43 - y21*x43)
+    d = (x21*y43 - y21*x43) 
+    if d == 0:
+        return np.NaN, np.NaN
+
+    u = (x31*y21 - y31*x21) / d
+    t = (x31*y43 - y31*x43) / d
 
     # Check if intersection exists, if so then store the value
     if (0 <= u <= 1) and (0 <= t <= 1):
@@ -80,3 +84,7 @@ def rand(*shape):
         return np.random.rand()
 
     return np.random.rand(*shape).flatten().reshape(*shape, order='F')
+
+
+def is_invertible(a):
+    return a.shape[0] == a.shape[1] and np.linalg.matrix_rank(a) == a.shape[0]

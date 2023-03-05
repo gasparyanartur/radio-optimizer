@@ -18,7 +18,8 @@ Initialize default channel parameters, including several parts.
 import numpy as np
 import matplotlib.pyplot as plt
 from enum import Enum, auto, unique
-from .utils import db2pow, to_rotm, get_angle_from_dir, get_linexline, rand
+from .utils import db2pow, to_rotm, get_angle_from_dir, get_linexline, rand, is_invertible
+import copy
 
 
 @unique
@@ -133,8 +134,9 @@ def get_EFIM_from_FIM(FIM, N_states):
 
 
 def get_PEB_and_CEB(CRLB):
-    PEB = np.sqrt(np.trace(CRLB[:3, :3]))
-    CEB = np.sqrt(CRLB[3, 3])
+    complex_CRLB = CRLB.astype('complex_')
+    PEB = np.sqrt(np.trace(complex_CRLB[:3, :3]))
+    CEB = np.sqrt(complex_CRLB[3, 3])
 
     return PEB, CEB
 
@@ -1002,7 +1004,7 @@ class ChannelmmWaveParameters:
         if blockage[0]:
             col_ind.append(np.arange(3))
         else:
-            row_ind.append(4 + i*2 + np.arange(2)) 
+            row_ind.append(4 + np.arange(2)) 
 
         for i in range(1, len(blockage)):
             if blockage[i]:
@@ -1011,15 +1013,20 @@ class ChannelmmWaveParameters:
                 row_ind.append(4 + i*2 + np.arange(2))
 
         row_ind = np.hstack(row_ind)
-        col_ind = np.hstack(col_ind)
-
         JS1 = self.JS[row_ind, :]
-        JS1[:, col_ind] = 0
+
+        if len(col_ind) > 0:
+            col_ind = np.hstack(col_ind)
+            JS1[:, col_ind] = 0
 
         FIM1 = JS1 @ self.FIM_M @ JS1.T
         EFIM = get_EFIM_from_FIM(FIM1, 4)
+
+        if not is_invertible(EFIM):
+            self.PEB = self.CEB = np.Inf
+            return
+
         CRLB = np.linalg.inv(EFIM)
-        
         self.PEB, self.CEB = get_PEB_and_CEB(CRLB)
 
 
@@ -1031,3 +1038,7 @@ class ChannelmmWaveParameters:
         plt.plot(self.Wall[1][:, 0], self.Wall[1][:, 1])
         plt.xlim(*xlim)
         plt.ylim(*ylim)
+
+
+    def copy(self):
+        return copy.deepcopy(self)
