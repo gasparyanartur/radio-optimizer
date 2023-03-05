@@ -1,6 +1,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
 from scipy.spatial.transform import Rotation
+from typing import Tuple
 
 
 def db2pow(x_db):
@@ -15,7 +16,7 @@ def rank(x: np.ndarray) -> int:
     return len(x.shape)
 
 
-def get_angle_from_dir(tv: np.ndarray, in_degrees=True) -> tuple[float, float]:
+def get_angle_from_dir(tv: np.ndarray, in_degrees=True) -> Tuple[float, float]:
     phi = np.arctan2(tv[1, :], tv[0, :])
     theta = np.arcsin(tv[2, :])
 
