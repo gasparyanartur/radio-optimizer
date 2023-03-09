@@ -289,7 +289,7 @@ class ChannelmmWaveParameters:
         fc: float = 28E9,    # carrier frequency
         BW: float = 400E6,   # 100M bandwidth
         # in [mW]. 1000mW = 30dBm. 1mW = 0dBm.
-        P: float = db2pow(20),
+        P: float = db2pow(15),
         # Synchronization offset (in [meter], 10 us -> 3000 m)
         beta: float = 30,
         K: int = 10,      # Number of carrier frequencies
