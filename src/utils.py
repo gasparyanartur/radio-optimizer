@@ -73,10 +73,10 @@ def get_linexline(L1x, L1y, L2x, L2y):
     return xi, yi
 
 
-def cdf_y(y, xgrid):
+def get_cdf(y, xgrid):
     """ Get the CDF of y """
 
-    return 1 - np.sum(y >= xgrid.T, axis=1) / len(y)
+    return 1 - np.sum(y.reshape(1, -1) >= xgrid.reshape(-1, 1), axis=1) / y.size
 
 
 def rand(*shape):

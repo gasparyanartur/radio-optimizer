@@ -16,10 +16,11 @@ Initialize default channel parameters, including several parts.
 
 
 import numpy as np
+import matplotlib as mpl
 import matplotlib.pyplot as plt
 import multiprocessing as mp
 from enum import Enum, auto, unique
-from .utils import db2pow, to_rotm, get_angle_from_dir, get_linexline, rand, is_invertible
+from .utils import db2pow, to_rotm, get_angle_from_dir, get_linexline, rand, is_invertible, get_cdf, setup_fig
 import copy
 import time
 from typing import Tuple, List
@@ -1155,6 +1156,21 @@ class ChannelmmWaveParameters:
 
         return PEB_cells
 
+    def get_PEB_CDF(self, PEB_cell):
+        PEB_mat = PEB_cell.copy()
+        PEB_mat[np.isnan(PEB_cell) | (np.abs(PEB_cell) > 100)] = 100
+
+        Z = PEB_mat.copy().T
+        Z[Z == 100] = 10
+
+        error_grid = 10.0 ** np.linspace(-2, 0, 100)
+        PEB_CDF = get_cdf(Z.T, error_grid)
+
+        return error_grid, PEB_CDF
+    
+    def get_CDF_threshold(self, error_grid, PEB_CDF, threshold=0.9):
+        return error_grid[np.argmax(PEB_CDF>=threshold)]
+
     def plot_scene(self):
         self.plot_walls()
         self.plot_PB()
@@ -1169,6 +1185,23 @@ class ChannelmmWaveParameters:
 
     def plot_PR(self):
         plt.scatter(self.PR[0], self.PR[1], marker='o', c='r', s=200)
+
+    def plot_PEB(self, PEB_cell, margin=0.25, cbar_shrink=0.65):
+        PEB_mat = PEB_cell.copy()
+        PEB_mat[np.isnan(PEB_cell) | (np.abs(PEB_cell) > 100)] = 100
+
+        setup_fig()
+        plt.title('PEB of ... []')
+        img = plt.imshow(PEB_mat.T.real, origin='lower', norm=mpl.colors.LogNorm(vmin=0.01, vmax=1), extent=[-5-margin, 5+margin, -margin, 5+margin])
+        plt.colorbar(img, pad=0.04, shrink=cbar_shrink, aspect=20*cbar_shrink)
+        self.plot_scene()
+
+    def plot_CDF_PEB(self, error_grid, PEB_CDF):
+        plt.scatter(error_grid, PEB_CDF)
+        plt.xscale('log')
+        plt.ylabel(r'Percentage of error < $\epsilon$')
+        plt.xlabel(r'Error $\epsilon$ [m]')
+        plt.grid(True, which='both')
 
     def copy(self):
         return copy.deepcopy(self)
