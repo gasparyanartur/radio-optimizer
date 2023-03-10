@@ -1,10 +1,35 @@
 import numpy as np
 import matplotlib.pyplot as plt
 from src.channel_mmWave_parameters import ChannelmmWaveParameters
+from typing import Tuple
+
+def get_placements(n_placements, xgrid, ygrid):
+    print(xgrid, ygrid)
+    n_y, n_x = len(xgrid), len(ygrid)
+    rat_y = n_y / n_x
+    rat_x = 1
+
+    circ = (2*rat_y + 2*rat_x)
+    rat_y /= circ
+    rat_x /= circ
+    
+    norm_circ = 2*rat_y + 2*rat_x
+    print(norm_circ)
+
 
 class ObjectiveFunction:
-    def __init__(self) -> None:
-        ...
+    def __init__(self,
+                 resolution: Tuple[float, float] = (20, 10),
+                 x_range: Tuple[float] = (-5, 5), 
+                 y_range: Tuple[float] = (0, 5),
+                 n_pos_hori: int = 8,
+                 n_pos_vert: int = 4
+                 ) -> None:
+        x_res, y_res = resolution
+        x_min, x_max = x_range
+        y_min, y_max = y_range
+
+
 
     def get_score(self, debug=False):
         c = ChannelmmWaveParameters(
