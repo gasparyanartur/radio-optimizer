@@ -13,7 +13,8 @@ def test_get_placements():
    xgrid = np.arange(-5, 5+0.5, 0.5)
    ygrid = np.arange(0, 5+0.5, 0.5)
 
-   objective_function.get_placements(10, xgrid, ygrid)
+   slots = objective_function.get_slots_from_side(xgrid, 3)
+   print(slots)
 
 
 def main():

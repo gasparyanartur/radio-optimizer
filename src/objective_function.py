@@ -1,20 +1,29 @@
+import math
 import numpy as np
 import matplotlib.pyplot as plt
 from src.channel_mmWave_parameters import ChannelmmWaveParameters
 from typing import Tuple
 
-def get_placements(n_placements, xgrid, ygrid):
-    print(xgrid, ygrid)
-    n_y, n_x = len(xgrid), len(ygrid)
-    rat_y = n_y / n_x
-    rat_x = 1
+def get_slots_from_side(side: np.ndarray, n: int) -> np.ndarray:
+    """ Split side to n evenly spaced slots. 
 
-    circ = (2*rat_y + 2*rat_x)
-    rat_y /= circ
-    rat_x /= circ
-    
-    norm_circ = 2*rat_y + 2*rat_x
-    print(norm_circ)
+    Args:
+        side <N>: The discrete positions of the side.
+        n: The number of slots to divide into.
+
+    Returns:
+        slots <n>: The positions of the slots. 
+    """
+    if len(side.shape) > 1:
+        raise ValueError(f"Side must be flat. Received side with dimensions {side.shape}.")
+
+    if n < 1:
+        raise ValueError(f"Cannot divide side of length {len(side)} into {n} slots.")
+
+    N = len(side)
+    gap = N/(n+1)
+    idx = (np.arange(1, n+1) * gap).astype(int)
+    return side[idx]
 
 
 class ObjectiveFunction:
