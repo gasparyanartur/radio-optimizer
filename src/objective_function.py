@@ -95,6 +95,15 @@ class ObjectiveFunction:
                  n_slots: Tuple[int, int, int, int] = (8, 4, 8, 4),
                  slot_dists: Tuple[float, float, float,
                                    float] = (0.1, 0.1, 0.1, 0.1),
+                 n_BS: int = 1,
+                 n_UE: int = 3,
+                 K: float = 64,
+
+                 walls: Tuple[np.ndarray] = (
+                     np.array([[-3, 2], [-1, 2]]),
+                     np.array([[3, 2], [1.5, 4]])
+                 ),
+
                  ) -> None:
         """ Defines an objective function for a given configuration of the environment.
 
@@ -103,6 +112,10 @@ class ObjectiveFunction:
             grid_step (x, y): How small steps the grid is dividied into.
             n_slots (left, right, bot, top): How many possible locations the equipment can be placed at.
             slot_dists (left, right, bot, top): The distance each slot has to the corresponding side.
+            n_BS: Number of base stations to consider during simulation.
+            n_UE: Number of user equipments to consider during simulation.
+            K: Parameter for simulation. Can be lowered for faster, but less precise simulation.
+            walls <2,2> ((y1, x1), (y2, x2)): The edge positions of each wall in the environment.
         """
         x_min, x_max, y_min, y_max = grid_range
         x_step, y_step = grid_step
@@ -110,9 +123,19 @@ class ObjectiveFunction:
         grid_x = np.arange(x_min, x_max+x_step, x_step)
         grid_y = np.arange(y_min, y_max+y_step, y_step)
 
+        self.n_BS = n_BS
+        self.n_UE = n_UE
+
+        self.K = K
+
+        self.walls = walls
+
         self.slots = get_slots(grid_x, grid_y, n_slots, slot_dists)
 
     def get_score(self, debug=False):
+        # TODO: Fix initial points
+        # TODO: Include orientation in slots (always 90 deg)
+
         c = ChannelmmWaveParameters(
             PB=np.array([0, -0.01, 0]).reshape(-1, 1),
             OB=np.array([45, 0, 0]).reshape(-1, 1),
@@ -124,7 +147,8 @@ class ObjectiveFunction:
             PU=np.array([-2, 3, -1.5]).reshape(-1, 1),
             OU=np.array([0, 0, 0]).reshape(-1, 1),
             NU_dim=np.array([1, 1]).reshape(-1, 1),
-            K=64,
+            K=self.K,
+            Wall=list(self.walls),
             G=10,
             seed=1
         )
